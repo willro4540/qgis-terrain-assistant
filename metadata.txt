@@ -1,0 +1,18 @@
+[general]
+name=Terrain Assistant
+qgisMinimumVersion=3.28
+description=Coordinate-refined terrain layers + third-party-ready PNG map export
+about=Loads terrain/elevation data sources through a pluggable interface, refines coordinate reference systems using QGIS's built-in PROJ-based reprojection (no custom CRS math), and exports a print-quality PNG map (title, scale bar, legend) suitable for handing to a third party. v1 ships with the CRS-refinement and PNG-export pipeline fully working against any layer already loaded in QGIS; the V-World-specific elevation data source is a documented stub (see README "Known limitation") pending a decision on a real, currently-available elevation data provider.
+version=0.1.0
+author=willro4540
+email=dev08@basiclike.kr
+repository=
+tracker=
+homepage=
+category=Plugins
+tags=terrain,dem,crs,export,cartography
+icon=icon.png
+experimental=True
+deprecated=False
+server=False
+hasProcessingProvider=no

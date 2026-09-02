@@ -124,6 +124,15 @@ sole DEM path for now.
 4. Open this plugin's menu → "Set V-World API key…" and paste it in — it's
    stored via `QgsSettings`, not in this repo.
 
+## Case study — real NGII (국토지리정보원) data
+
+[`docs/case_study_ngii_data.md`](docs/case_study_ngii_data.md) walks through using this
+plugin's problem space (CRS refinement) on real downloaded Korean public geospatial data:
+a missing-`.prj` shapefile actually fixed and verified, two NGII products found to use
+*different* CRSs (EPSG:5186 vs EPSG:5179) for the same area, a Korean-filename zip-encoding
+gotcha, and an honest write-up of an aerial-photo georeferencing attempt that didn't fully
+resolve (documented as an open question, not papered over).
+
 ## Installing this plugin into QGIS
 
 1. Copy this folder into your QGIS profile's plugin directory:

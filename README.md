@@ -1,4 +1,4 @@
-# Terrain Assistant (QGIS plugin, v0.2.0)
+# Terrain Assistant (QGIS plugin, v0.3.0)
 
 A QGIS plugin that refines coordinate reference systems using QGIS's own
 PROJ-based reprojection, and exports a print-quality PNG map (title, scale
@@ -30,6 +30,10 @@ convention, `docs/06_crs_coordinate_systems.md` for the CRS/PROJ approach).
   DEMs.
 - Toolbar/menu integration (`initGui`/`unload`), a settings dialog for
   storing an API key via `QgsSettings` (not hardcoded).
+- **MCP server** (`mcp_server.py`, new in v0.3.0) — exposes `load_dem`,
+  `refine_crs`, `export_map_png`, and `export_3d_scene` as MCP tools so
+  Claude Code / Claude Desktop can drive this plugin's real functions
+  directly via natural language. See "AI integration (MCP server)" below.
 
 ## Getting an OpenTopography API key (needed for DEM loading)
 
@@ -96,13 +100,96 @@ sole DEM path for now.
    Plugins → Installed**.
 3. A "Terrain Assistant" entry appears in the Plugins menu and toolbar.
 
+## AI integration (MCP server)
+
+Why this exists: this project's broader research series
+([`autocad-architecture-study`](https://github.com/willro4540/autocad-architecture-study),
+[`revit-architecture-study`](https://github.com/willro4540/revit-architecture-study))
+found that Autodesk ships its own MCP Server bundles inside AutoCAD/Revit,
+exposing CAD operations as tools for an AI client. `mcp_server.py` does the
+same for this plugin: it exposes the exact functions the toolbar buttons
+call — nothing is reimplemented — as MCP tools, over stdio.
+
+**Two design choices, both deliberate:**
+- **Standalone headless process, not "inside the QGIS GUI plugin."** The
+  server initializes QGIS's own API headlessly via
+  `QgsApplication.initQgis()` (the official PyQGIS "Standalone Scripts"
+  pattern), so Claude Code can call these tools whether or not the QGIS
+  desktop application happens to be open.
+- **2D and 3D are separate tools** (`export_map_png` vs. `export_3d_scene`),
+  not one blended tool — because they're genuinely different QGIS
+  subsystems (2D print layout vs. the GPU-backed 3D map view).
+
+**What's real vs. what's a stub, honestly:**
+- `load_dem` and `refine_crs`/`export_map_png` wrap functions that were
+  already verified in earlier sessions (`datasource.py`,
+  `map_export.py`) — see those modules' docstrings for exactly what was
+  tested and how.
+- `export_3d_scene` wraps a **real, confirmed** QGIS API
+  (`Qgs3DMapScene.exportScene`/`Qgs3DMapExportSettings`, confirmed by
+  directly reading the installed QGIS's compiled Python type stubs, not
+  guessed) that exports to `.obj`/`.stl` mesh files — but a 3D scene needs
+  a GPU-backed window (`Qgs3DMapCanvas` is a `QtGui.QWindow` subclass) to
+  populate before it can export anything, and this could not be
+  execution-tested end-to-end in this session (no live GPU-backed QGIS
+  session was available). See `map_export_3d.py`'s module docstring for
+  the full, graded explanation before relying on it.
+- The MCP tool-registration and parameter-validation logic itself **was**
+  actually run — see `tests/test_mcp_server.py` (4/4 pass, verified this
+  session) and "Running the tests" below.
+
+**Every tool takes explicit parameters from the caller** (bounding box,
+output paths, format) — none of them autonomously decide what area or
+data to use. You (or whoever is driving the MCP client) supply the data.
+
+**Running the server:**
+
+```
+pip install -r requirements-mcp.txt
+```
+
+Then, using the Python interpreter QGIS itself ships (so `qgis.core`/
+`qgis._3d` are importable — e.g. on Windows,
+`C:\Program Files\QGIS 4.2.1\apps\Python312\python.exe`), with
+`QGIS_PREFIX_PATH` set to your QGIS install's `apps\qgis` directory:
+
+```
+set QGIS_PREFIX_PATH=C:\Program Files\QGIS 4.2.1\apps\qgis
+"C:\Program Files\QGIS 4.2.1\apps\Python312\python.exe" mcp_server.py
+```
+
+**Connecting Claude Code / Claude Desktop:** add an entry to your MCP
+client config pointing at the same interpreter and script, e.g.:
+
+```json
+{
+  "mcpServers": {
+    "qgis-terrain-assistant": {
+      "command": "C:\\Program Files\\QGIS 4.2.1\\apps\\Python312\\python.exe",
+      "args": ["C:\\Users\\user\\Desktop\\qgis-terrain-assistant\\mcp_server.py"],
+      "env": { "QGIS_PREFIX_PATH": "C:\\Program Files\\QGIS 4.2.1\\apps\\qgis" }
+    }
+  }
+}
+```
+
+This exact config was not tested against a running Claude Code/Desktop
+client in this session — verify the config-file location and key names
+against your client's current documentation if it doesn't connect.
+
 ## Running the tests
 
 ```
 cd qgis-terrain-assistant
-python -m pip install pytest
+python -m pip install pytest -r requirements-mcp.txt
 python -m pytest tests/ -v
 ```
+
+(`tests/test_mcp_server.py` needs the `mcp` package from
+`requirements-mcp.txt`; `tests/test_datasource.py` doesn't. Both run fine
+with plain `python`/pytest — neither needs a real QGIS install, since
+`mcp_server.py` defers all `qgis.core`/`map_export` imports until a
+QGIS-dependent tool actually runs. Verified this session: 12/12 pass.)
 
 `tests/test_datasource.py` covers `datasource.py` only — it has no QGIS
 import, so it runs with plain Python outside the QGIS application (verified

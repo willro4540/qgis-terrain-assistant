@@ -1,0 +1,4 @@
+# Dependencies for mcp_server.py only (the plugin itself has no extra
+# dependencies beyond QGIS's own bundled PyQt/qgis.core).
+# Installed and verified against in this session: mcp==2.1.1.
+mcp>=2.1.1

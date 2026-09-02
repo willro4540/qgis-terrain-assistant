@@ -7,7 +7,7 @@ Reference: https://qgis.org/pyqgis/master/core/QgsSettings.html
 from qgis.core import QgsSettings
 from qgis.PyQt.QtWidgets import QDialog, QFormLayout, QLineEdit, QDialogButtonBox
 
-SETTINGS_KEY = "TerrainAssistant/vworld_api_key"
+SETTINGS_KEY = "TerrainAssistant/opentopography_api_key"
 
 
 def get_api_key() -> str:
@@ -28,8 +28,8 @@ class ApiKeyDialog(QDialog):
 
         self.key_edit = QLineEdit(self)
         self.key_edit.setText(get_api_key())
-        self.key_edit.setPlaceholderText("V-World developer portal API key")
-        layout.addRow("V-World API key:", self.key_edit)
+        self.key_edit.setPlaceholderText("OpenTopography portal API key")
+        layout.addRow("OpenTopography API key:", self.key_edit)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self

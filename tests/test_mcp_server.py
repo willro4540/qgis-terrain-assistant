@@ -7,12 +7,13 @@ What this actually verifies (grade (a), directly run in this session):
   export_3d_scene defer their `qgis`/`map_export` imports until the tool
   body actually runs, so the MCP server process doesn't hard-require a
   QGIS Python environment just to start up and register its tools.
-- The three tools registered with @mcp.tool() are visible on the MCPServer
+- The five tools registered with @mcp.tool() are visible on the MCPServer
   instance with the expected names.
-- load_dem (the one tool with zero qgis.core dependency) actually runs its
-  real validation path (calls datasource.OpenTopographyDemSource.fetch,
-  which validates the bbox and requires an api_key) using a fake,
-  clearly-marked placeholder key — never a real one.
+- load_dem and load_sentinel_imagery (the two tools with zero qgis.core
+  dependency) actually run their real validation paths (calling
+  datasource.OpenTopographyDemSource.fetch / SentinelHubImagerySource.fetch,
+  which validate the bbox and require real credentials) using fake,
+  clearly-marked placeholder values — never real ones.
 
 What this does NOT verify (left for a real QGIS environment, same honesty
 convention as tests/test_datasource.py): refine_crs/export_map_png/
@@ -43,9 +44,15 @@ def _tool_names():
     return {t.name for t in tools}
 
 
-def test_all_four_tools_registered():
+def test_all_five_tools_registered():
     names = _tool_names()
-    assert names == {"load_dem", "refine_crs", "export_map_png", "export_3d_scene"}
+    assert names == {
+        "load_dem",
+        "load_sentinel_imagery",
+        "refine_crs",
+        "export_map_png",
+        "export_3d_scene",
+    }
 
 
 def test_load_dem_requires_api_key():
@@ -61,4 +68,21 @@ def test_load_dem_rejects_invalid_bbox():
         mcp_server.load_dem(
             south=38.0, north=37.0, west=126.0, east=127.0,  # south > north
             api_key="FAKE-PLACEHOLDER-KEY-NOT-REAL",
+        )
+
+
+def test_load_sentinel_imagery_requires_credentials():
+    with pytest.raises(ValueError):
+        mcp_server.load_sentinel_imagery(
+            south=37.0, north=38.0, west=126.0, east=127.0,
+            client_id="", client_secret="",  # deliberately empty, not real
+        )
+
+
+def test_load_sentinel_imagery_rejects_invalid_bbox():
+    with pytest.raises(ValueError):
+        mcp_server.load_sentinel_imagery(
+            south=38.0, north=37.0, west=126.0, east=127.0,  # south > north
+            client_id="FAKE-CLIENT-ID-NOT-REAL",
+            client_secret="FAKE-CLIENT-SECRET-NOT-REAL",
         )

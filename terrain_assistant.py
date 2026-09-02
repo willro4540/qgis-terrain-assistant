@@ -12,9 +12,9 @@ from qgis.core import QgsProject, QgsRasterLayer
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction, QFileDialog, QMessageBox
 
-from .settings_dialog import ApiKeyDialog, get_api_key
+from .settings_dialog import ApiKeyDialog, get_api_key, get_sentinelhub_credentials
 from .map_export import export_map_png, refine_crs
-from .datasource import BoundingBox, OpenTopographyDemSource
+from .datasource import BoundingBox, OpenTopographyDemSource, SentinelHubImagerySource
 
 
 class TerrainAssistantPlugin:
@@ -33,13 +33,21 @@ class TerrainAssistantPlugin:
         self.iface.addPluginToMenu(self.menu, load_dem_action)
         self.actions.append(load_dem_action)
 
+        load_imagery_action = QAction(
+            icon, "Load Sentinel-2 imagery…", self.iface.mainWindow()
+        )
+        load_imagery_action.triggered.connect(self.run_load_sentinel_imagery)
+        self.iface.addToolBarIcon(load_imagery_action)
+        self.iface.addPluginToMenu(self.menu, load_imagery_action)
+        self.actions.append(load_imagery_action)
+
         export_action = QAction(icon, "Export current map as PNG", self.iface.mainWindow())
         export_action.triggered.connect(self.run_export)
         self.iface.addToolBarIcon(export_action)
         self.iface.addPluginToMenu(self.menu, export_action)
         self.actions.append(export_action)
 
-        settings_action = QAction("Set OpenTopography API key…", self.iface.mainWindow())
+        settings_action = QAction("Set API keys…", self.iface.mainWindow())
         settings_action.triggered.connect(self.run_settings)
         self.iface.addPluginToMenu(self.menu, settings_action)
         self.actions.append(settings_action)
@@ -117,6 +125,76 @@ class TerrainAssistantPlugin:
         QgsProject.instance().addMapLayer(layer)
         QMessageBox.information(
             self.iface.mainWindow(), "Terrain Assistant", "DEM layer added to the project."
+        )
+
+    def run_load_sentinel_imagery(self):
+        """Fetch a Sentinel-2 L2A true-color image covering the current map
+        canvas extent from Sentinel Hub and add it to the project as a
+        raster layer. Same CRS-refinement approach as run_load_dem() (the
+        Process API's bbox is in EPSG:4326 lon/lat degrees — verified,
+        see datasource.SentinelHubImagerySource's docstring).
+
+        Requires a Sentinel Hub OAuth client_id/client_secret pair (NOT a
+        single API key) — genuinely different credential shape from
+        OpenTopography, see settings_dialog.py and the datasource
+        docstring for why.
+        """
+        client_id, client_secret = get_sentinelhub_credentials()
+        if not client_id or not client_secret:
+            QMessageBox.warning(
+                self.iface.mainWindow(),
+                "Terrain Assistant",
+                "No Sentinel Hub credentials set. Use 'Set API keys…' first "
+                "— register a free OAuth client at "
+                "https://apps.sentinel-hub.com/dashboard/#/account/settings",
+            )
+            return
+
+        canvas = self.iface.mapCanvas()
+        canvas_crs = canvas.mapSettings().destinationCrs()
+        canvas_epsg = canvas_crs.postgisSrid()
+
+        try:
+            if canvas_epsg == 4326:
+                extent_4326 = canvas.extent()
+            else:
+                extent_4326 = refine_crs(canvas.extent(), canvas_epsg, 4326)
+
+            bbox = BoundingBox(
+                min_lon=extent_4326.xMinimum(),
+                min_lat=extent_4326.yMinimum(),
+                max_lon=extent_4326.xMaximum(),
+                max_lat=extent_4326.yMaximum(),
+            )
+            source = SentinelHubImagerySource(
+                client_id=client_id, client_secret=client_secret
+            )
+            image_bytes = source.fetch(bbox)
+        except Exception as exc:  # noqa: BLE001 — surface any fetch failure to the user
+            QMessageBox.critical(
+                self.iface.mainWindow(), "Terrain Assistant — imagery load failed", str(exc)
+            )
+            return
+
+        tif_path = tempfile.NamedTemporaryFile(
+            prefix="terrain_assistant_sentinel_", suffix=".tif", delete=False
+        ).name
+        with open(tif_path, "wb") as f:
+            f.write(image_bytes)
+
+        layer = QgsRasterLayer(tif_path, "Sentinel-2 L2A imagery")
+        if not layer.isValid():
+            QMessageBox.critical(
+                self.iface.mainWindow(),
+                "Terrain Assistant",
+                f"Sentinel Hub response could not be loaded as a raster layer "
+                f"(saved to {tif_path} for inspection).",
+            )
+            return
+
+        QgsProject.instance().addMapLayer(layer)
+        QMessageBox.information(
+            self.iface.mainWindow(), "Terrain Assistant", "Imagery layer added to the project."
         )
 
     def run_export(self):

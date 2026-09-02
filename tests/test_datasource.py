@@ -18,6 +18,8 @@ from datasource import (
     build_vworld_request_url,
     OpenTopographyDemSource,
     build_opentopography_request_url,
+    SentinelHubImagerySource,
+    build_sentinelhub_process_request,
 )
 
 
@@ -97,3 +99,48 @@ def test_opentopography_dem_source_validates_bbox_before_network():
     with pytest.raises(ValueError):
         # Should raise on bbox validation, not attempt a network call.
         source.fetch(bad_bbox, api_key="FAKE-PLACEHOLDER-KEY-NOT-REAL")
+
+
+def test_build_sentinelhub_process_request():
+    bbox = BoundingBox(min_lon=126.0, min_lat=37.0, max_lon=127.0, max_lat=38.0)
+    body = build_sentinelhub_process_request(
+        bbox=bbox,
+        data_collection="S2L2A",
+        time_from="2026-06-01T00:00:00Z",
+        time_to="2026-06-30T00:00:00Z",
+        width=512,
+        height=512,
+        evalscript=SentinelHubImagerySource.TRUE_COLOR_EVALSCRIPT,
+    )
+    assert body["input"]["bounds"]["bbox"] == [126.0, 37.0, 127.0, 38.0]
+    assert body["input"]["data"][0]["type"] == "S2L2A"
+    assert body["input"]["data"][0]["dataFilter"]["timeRange"] == {
+        "from": "2026-06-01T00:00:00Z",
+        "to": "2026-06-30T00:00:00Z",
+    }
+    assert body["output"]["width"] == 512
+    assert body["output"]["height"] == 512
+    assert body["output"]["responses"][0]["format"]["type"] == "image/tiff"
+    assert "evaluatePixel" in body["evalscript"]
+
+
+def test_sentinelhub_imagery_source_requires_credentials():
+    """SentinelHubImagerySource needs BOTH client_id and client_secret
+    (OAuth2 client-credentials) — verify the fast-fail happens before any
+    network call, same discipline as
+    test_opentopography_dem_source_requires_api_key.
+    """
+    source = SentinelHubImagerySource(client_id="", client_secret="")
+    bbox = BoundingBox(min_lon=126.0, min_lat=37.0, max_lon=127.0, max_lat=38.0)
+    with pytest.raises(ValueError):
+        source.fetch(bbox)
+
+
+def test_sentinelhub_imagery_source_validates_bbox_before_network():
+    source = SentinelHubImagerySource(
+        client_id="FAKE-CLIENT-ID-NOT-REAL", client_secret="FAKE-CLIENT-SECRET-NOT-REAL"
+    )
+    bad_bbox = BoundingBox(min_lon=127.0, min_lat=37.0, max_lon=126.0, max_lat=38.0)
+    with pytest.raises(ValueError):
+        # Should raise on bbox validation, not attempt a network call.
+        source.fetch(bad_bbox)

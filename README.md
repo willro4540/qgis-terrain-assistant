@@ -1,4 +1,4 @@
-# Terrain Assistant (QGIS plugin, v0.3.0)
+# Terrain Assistant (QGIS plugin, v0.4.0)
 
 A QGIS plugin that refines coordinate reference systems using QGIS's own
 PROJ-based reprojection, and exports a print-quality PNG map (title, scale
@@ -10,7 +10,7 @@ and cross-checked against this repo's own [`qgis-architecture-study`](https://gi
 research (`docs/04_plugin_system_and_pyqgis.md` for the `classFactory`
 convention, `docs/06_crs_coordinate_systems.md` for the CRS/PROJ approach).
 
-## What works right now (v0.2.0)
+## What works right now (v0.4.0)
 
 - **DEM loading via OpenTopography** (`datasource.OpenTopographyDemSource`,
   wired into the toolbar as "Load DEM from OpenTopography…") — fetches real
@@ -20,6 +20,14 @@ convention, `docs/06_crs_coordinate_systems.md` for the CRS/PROJ approach).
   The canvas extent is converted to the lon/lat degrees OpenTopography's
   API expects using `map_export.refine_crs` (QGIS's own PROJ transform) —
   same reprojection code path the PNG export already uses.
+- **Sentinel-2 imagery loading via Sentinel Hub** (`datasource.SentinelHubImagerySource`,
+  new in v0.4.0, wired into the toolbar as "Load Sentinel-2 imagery…") —
+  fetches a true-color Sentinel-2 L2A image for the current map canvas
+  extent via Sentinel Hub's Process API, and adds it as a raster layer.
+  **Different credential shape than OpenTopography** (OAuth2
+  client_id/client_secret pair, not a single key) and **not a free-forever
+  service** — see "Getting Sentinel Hub credentials" below before relying
+  on this.
 - **CRS refinement** (`map_export.refine_crs`) — reproject any extent
   between two EPSG codes using `QgsCoordinateTransform`, QGIS's built-in
   on-the-fly reprojection engine. No custom coordinate math.
@@ -28,9 +36,11 @@ convention, `docs/06_crs_coordinate_systems.md` for the CRS/PROJ approach).
   are currently loaded in your QGIS project, and exports it via
   `QgsLayoutExporter`. Works with any layer source, not just OpenTopography
   DEMs.
-- Toolbar/menu integration (`initGui`/`unload`), a settings dialog for
-  storing an API key via `QgsSettings` (not hardcoded).
-- **MCP server** (`mcp_server.py`, new in v0.3.0) — exposes `load_dem`,
+- Toolbar/menu integration (`initGui`/`unload`), a settings dialog
+  ("Set API keys…") for storing the OpenTopography key and Sentinel Hub
+  OAuth credentials via `QgsSettings` (not hardcoded).
+- **MCP server** (`mcp_server.py`, MCP added in v0.3.0, `load_sentinel_imagery`
+  added in v0.4.0) — exposes `load_dem`, `load_sentinel_imagery`,
   `refine_crs`, `export_map_png`, and `export_3d_scene` as MCP tools so
   Claude Code / Claude Desktop can drive this plugin's real functions
   directly via natural language. See "AI integration (MCP server)" below.
@@ -45,6 +55,31 @@ convention, `docs/06_crs_coordinate_systems.md` for the CRS/PROJ approach).
    independently load-tested): 200 requests/24h for academic accounts,
    50/24h otherwise. Each DEM area is also capped (450,000 km² for 30m
    datasets like COP30/SRTMGL1) — plenty for a single map export.
+
+## Getting Sentinel Hub credentials (needed for Sentinel-2 imagery loading)
+
+**Read this before assuming it's free the way OpenTopography is — it is not.**
+
+1. Sign up for a Sentinel Hub account (now operated under Planet) at
+   https://www.sentinel-hub.com.
+2. In the dashboard, go to **User Settings → OAuth clients → Create**, name
+   the client, and copy both the **client ID** and **client secret**
+   immediately — the secret is shown only once
+   (https://apps.sentinel-hub.com/dashboard/#/account/settings).
+3. Open this plugin's menu → "Set API keys…" and paste both values in —
+   stored via `QgsSettings`, never in this repo.
+4. **Honest pricing note** (grade (c) — pieced together from a Planet
+   community forum post and search-result summaries, NOT a single
+   definitive pricing page this session could fetch directly): Sentinel
+   Hub offers a time-limited trial with a capped monthly "processing unit"
+   allowance, not an unlimited/forever-free tier like OpenTopography.
+   Confirm current terms yourself at https://www.sentinel-hub.com/pricing/
+   before relying on this for repeated use.
+5. Unlike OpenTopography's single `API_Key` string, Sentinel Hub uses
+   OAuth2 client-credentials (a `client_id` **and** `client_secret` pair) —
+   see `datasource.SentinelHubImagerySource`'s docstring for the full,
+   graded explanation of why this data source's code shape is genuinely
+   different from `OpenTopographyDemSource`'s.
 
 ## ⚠️ Historical note — V-World DEM was the original v1 plan and is a dead end
 
@@ -125,6 +160,12 @@ call — nothing is reimplemented — as MCP tools, over stdio.
   already verified in earlier sessions (`datasource.py`,
   `map_export.py`) — see those modules' docstrings for exactly what was
   tested and how.
+- `load_sentinel_imagery` (new in v0.4.0) wraps `SentinelHubImagerySource` —
+  the request-building logic is unit-tested and the API shape is verified
+  against official docs, but the actual network round-trip (OAuth token +
+  image fetch) was **not** executed end-to-end in this session (no real
+  Sentinel Hub OAuth credentials were available — see the class docstring
+  and "Getting Sentinel Hub credentials" above).
 - `export_3d_scene` wraps a **real, confirmed** QGIS API
   (`Qgs3DMapScene.exportScene`/`Qgs3DMapExportSettings`, confirmed by
   directly reading the installed QGIS's compiled Python type stubs, not
@@ -189,18 +230,24 @@ python -m pytest tests/ -v
 `requirements-mcp.txt`; `tests/test_datasource.py` doesn't. Both run fine
 with plain `python`/pytest — neither needs a real QGIS install, since
 `mcp_server.py` defers all `qgis.core`/`map_export` imports until a
-QGIS-dependent tool actually runs. Verified this session: 12/12 pass.)
+QGIS-dependent tool actually runs. Verified this session: 17/17 pass.)
 
 `tests/test_datasource.py` covers `datasource.py` only — it has no QGIS
 import, so it runs with plain Python outside the QGIS application (verified
-in this session: 8/8 pass, including the new OpenTopography URL-building
-and validation tests). Note what's *not* covered: `OpenTopographyDemSource.fetch()`'s
-actual network call was not executed end-to-end with a real API key in
-this session (no key was obtained here) — what *was* directly verified is
-the live endpoint's behavior itself (base URL, parameter names, and the
-XML error format) via real `curl` requests against
-`https://portal.opentopography.org/API/globaldem`, so the request-building
-code is based on observed reality, not guessed docs. `map_export.py` and
+in this session: 11/11 pass, including the OpenTopography and Sentinel Hub
+URL/request-building and validation tests). Note what's *not* covered:
+`OpenTopographyDemSource.fetch()`'s and `SentinelHubImagerySource.fetch()`'s
+actual network calls were not executed end-to-end with real credentials in
+this session (no OpenTopography key or Sentinel Hub OAuth client was used
+here) — what *was* directly verified for OpenTopography is the live
+endpoint's behavior itself (base URL, parameter names, and the XML error
+format) via real `curl` requests against
+`https://portal.opentopography.org/API/globaldem`; for Sentinel Hub, the
+token endpoint, Process API endpoint, and request-body shape were verified
+against official Sentinel Hub documentation and `sentinelhub-py`'s
+documented examples (grade (a) for the URLs/shape, not independently
+probed live the way OpenTopography was — see `SentinelHubImagerySource`'s
+docstring). `map_export.py` and
 `terrain_assistant.py` import `qgis.core`/`qgis.PyQt`, which only exist
 inside a running QGIS Python environment — they have **not** been executed
 end-to-end in this session (there's no way to run the QGIS desktop

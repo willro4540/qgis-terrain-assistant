@@ -53,7 +53,7 @@ import sys
 
 from mcp.server.mcpserver import MCPServer
 
-from datasource import BoundingBox, OpenTopographyDemSource
+from datasource import BoundingBox, OpenTopographyDemSource, SentinelHubImagerySource
 
 mcp = MCPServer("qgis-terrain-assistant")
 
@@ -106,6 +106,42 @@ def load_dem(
     bbox = BoundingBox(min_lon=west, min_lat=south, max_lon=east, max_lat=north)
     source = OpenTopographyDemSource(demtype=demtype)
     data = source.fetch(bbox, api_key=api_key)
+    with open(output_path, "wb") as f:
+        f.write(data)
+    return output_path
+
+
+@mcp.tool()
+def load_sentinel_imagery(
+    south: float,
+    north: float,
+    west: float,
+    east: float,
+    client_id: str,
+    client_secret: str,
+    time_from: str = "2026-06-01T00:00:00Z",
+    time_to: str = "2026-06-30T00:00:00Z",
+    output_path: str = "sentinel_output.tif",
+) -> str:
+    """Fetch a Sentinel-2 L2A true-color GeoTIFF for the given lon/lat
+    bounding box from Sentinel Hub's Process API and save it to
+    output_path.
+
+    All of south/north/west/east/client_id/client_secret/time_from/
+    time_to/output_path are explicit caller inputs — this tool never
+    guesses an area, time range, or credentials on its own.
+
+    NOTE: unlike load_dem, this requires an OAuth client_id AND
+    client_secret pair (Sentinel Hub's real auth shape — see
+    datasource.SentinelHubImagerySource's docstring), and Sentinel Hub is
+    NOT a permanently-free service like OpenTopography — see that same
+    docstring for the honest trial/pricing caveat.
+
+    Returns the output_path on success.
+    """
+    bbox = BoundingBox(min_lon=west, min_lat=south, max_lon=east, max_lat=north)
+    source = SentinelHubImagerySource(client_id=client_id, client_secret=client_secret)
+    data = source.fetch(bbox, time_from=time_from, time_to=time_to)
     with open(output_path, "wb") as f:
         f.write(data)
     return output_path

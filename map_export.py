@@ -119,6 +119,81 @@ def export_dem_heightmap_png(dem_path: str, output_path: str) -> None:
         raise RuntimeError(f"GDAL's PNG driver failed to write {output_path!r}")
 
 
+def export_dem_heightmap_r16(dem_path: str, output_path: str) -> tuple[int, int]:
+    """Convert a DEM GeoTIFF into Twinmotion's native `.r16` heightmap
+    format — a headerless raw dump of 16-bit unsigned little-endian
+    integers in row-major order (VERIFIED 2026-09-03, grade a: the user
+    directly confirmed live in Twinmotion 2026.2's own Import file-type
+    dropdown that "Heightmaps" accepts exactly `*.r16;*.png` — screenshot
+    checked; format spec cross-confirmed via multiple independent
+    community/tooling sources describing `.r16` as 16-bit unsigned,
+    little-endian, headerless, row-major, values 0-65535).
+
+    Prefer this over export_dem_heightmap_png() when bit-depth certainty
+    matters: `.r16` is UNAMBIGUOUSLY 16-bit by definition of the format,
+    whereas a `.png`'s bit depth (8 vs 16) is a choice PNG allows either
+    way — this session could not confirm which one Twinmotion's PNG path
+    actually honors, so `.r16` sidesteps that open question entirely.
+    Keep export_dem_heightmap_png() too — PNG is still useful for a quick
+    visual preview outside Twinmotion, which `.r16` (no viewer opens it
+    directly) is not.
+
+    Same normalization as export_dem_heightmap_png(): elevation is scaled
+    to the full 0-65535 range of the exported area (relative height, not
+    absolute meters) since Twinmotion applies its own vertical scaling on
+    import.
+
+    IMPORTANT — unlike PNG, `.r16` stores NO width/height metadata at all
+    (confirmed by the format's own definition, not just this DEM's case).
+    Twinmotion's heightmap importer needs the resolution entered manually
+    when importing a raw file, so the caller MUST track/report the
+    returned (width, height) alongside the file — losing that pairing
+    makes the .r16 file unusable.
+
+    NOT execution-tested end-to-end in this session (no live QGIS/GDAL
+    environment here) — same documented limitation as this module's other
+    QGIS-dependent functions.
+
+    Returns:
+        (width, height) in pixels — must be recorded/shown to the user
+        alongside output_path, since the file itself doesn't carry it.
+
+    Raises:
+        ValueError: dem_path isn't openable by GDAL, has no valid
+            elevation data, or is perfectly flat (zero range).
+    """
+    from osgeo import gdal
+    import numpy as np
+
+    dataset = gdal.Open(dem_path)
+    if dataset is None:
+        raise ValueError(f"GDAL could not open {dem_path!r} as a raster")
+
+    band = dataset.GetRasterBand(1)
+    elevation = band.ReadAsArray().astype(np.float64)
+    nodata = band.GetNoDataValue()
+    if nodata is not None:
+        elevation = np.where(elevation == nodata, np.nan, elevation)
+
+    valid = elevation[~np.isnan(elevation)]
+    if valid.size == 0:
+        raise ValueError(f"{dem_path!r} has no valid elevation data")
+
+    min_elev, max_elev = float(valid.min()), float(valid.max())
+    if max_elev == min_elev:
+        raise ValueError(
+            f"{dem_path!r} is perfectly flat (elevation range is zero) — "
+            "cannot normalize to a heightmap"
+        )
+
+    normalized = (elevation - min_elev) / (max_elev - min_elev)
+    normalized = np.nan_to_num(normalized, nan=0.0)
+    heightmap = (normalized * 65535).astype("<u2")  # explicit little-endian uint16
+
+    heightmap.tofile(output_path)
+    return dataset.RasterXSize, dataset.RasterYSize
+
+
 def refine_crs(geometry_or_extent, source_epsg: int, target_epsg: int):
     """Reproject a QgsRectangle (or anything QgsCoordinateTransform accepts)
     from source_epsg to target_epsg using QGIS's built-in PROJ transform.

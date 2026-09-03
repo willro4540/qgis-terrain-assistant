@@ -119,14 +119,19 @@ Sentinel-2 10m)를 함께 다루므로, Prithvi(HLS 고정 6밴드)보다 Clay�
 Clay 인코더만 1.25GB)을 끌어들이므로, "가벼운 CRS/지도 출력 도구"라는 현재 정체성과
 분리해 선택적 모듈로 붙이는 설계가 필요합니다.
 
-## 6. DEM/이미지 → Twinmotion 지형 내보내기 — 신규 후보(2026-09-03, twinmotion-architecture-study에서 역유입) — ✅ 1단계(하이트맵 PNG) 구현 완료
+## 6. DEM/이미지 → Twinmotion 지형 내보내기 — 신규 후보(2026-09-03, twinmotion-architecture-study에서 역유입) — ✅ 구현 완료(PNG + r16)
 
-> **업데이트(2026-09-03)**: `map_export.export_dem_heightmap_png()`로 구현했습니다 — DEM
-> GeoTIFF를 16비트 그레이스케일 PNG로 변환(GDAL MEM+PNG 드라이버, numpy 정규화). QGIS
-> 4.2.1에 GDAL 3.13.2+numpy가 이미 번들돼 있어(직접 확인) 새 의존성 없음. **QGIS 환경
+> **업데이트(2026-09-03)**: `map_export.export_dem_heightmap_png()`(16비트 PNG)와
+> `map_export.export_dem_heightmap_r16()`(네이티브 `.r16`, 명확히 16비트) 둘 다 구현했습니다.
+> **비트심도 애매함이 사용자가 직접 Twinmotion 2026.2를 실행해서 Import 파일 필터를
+> 확인해준 덕분에 풀렸습니다** — "Heightmaps" 필터가 `*.r16;*.png`를 받는다는 걸 스크린샷으로
+> 확인, `.r16`은 정의상 압축/헤더 없는 순수 16비트 부호없는 정수 배열(리틀엔디안)이라
+> PNG와 달리 비트심도 논쟁 자체가 없음(등급 a — 스크린샷 직접 확인 + 포맷 스펙 교차검증).
+> **주의**: `.r16`은 가로/세로 해상도 정보가 파일에 없어 `export_dem_heightmap_r16()`이
+> `(width, height)`를 반환값으로 돌려줌 — Twinmotion 임포트 시 수동으로 입력해야 함.
+> QGIS 4.2.1에 GDAL 3.13.2+numpy가 이미 번들돼 있어(직접 확인) 새 의존성 없음. **QGIS 환경
 > 밖에서는 GDAL을 못 불러와 이번 세션에서 pytest로 실행 테스트는 못 함** — 이 파일의
-> 다른 QGIS 의존 함수들(`export_map_png` 등)과 같은 기존 관례. 8비트/16비트 중 16비트를
-> 안전하게 선택(추후 Twinmotion 실제 파일 필터 확인 후 필요시 조정). 아래는 원래 조사
+> 다른 QGIS 의존 함수들(`export_map_png` 등)과 같은 기존 관례. 아래는 원래 조사
 > 기록(보존).
 
 **출처**: `twinmotion-architecture-study/docs/11` §6 — Cesium/Google 3D Tiles를 Twinmotion에

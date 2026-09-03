@@ -1,4 +1,4 @@
-# Terrain Assistant (QGIS plugin, v0.6.0)
+# Terrain Assistant (QGIS plugin, v0.7.0)
 
 A QGIS plugin that refines coordinate reference systems using QGIS's own
 PROJ-based reprojection, and exports a print-quality PNG map (title, scale
@@ -158,7 +158,7 @@ GitHub research (mangosystem/qgis-tmsforkorea-plugin was the verified
 reference for the actual tile URL templates — not reused/copied, only the
 URLs themselves were confirmed against its source).
 
-## DEM → Twinmotion heightmap export — v0.6.0
+## DEM → Twinmotion heightmap export — v0.7.0, end-to-end verified
 
 `map_export.export_dem_heightmap_r16()` / `export_dem_heightmap_png()`,
 wired into the toolbar as "Export DEM as heightmap (.r16, for
@@ -173,9 +173,28 @@ dialog — its "Heightmaps" filter accepts exactly `*.r16;*.png`). `.r16`
 is preferred for actual use — it's a headerless raw 16-bit unsigned
 little-endian format, so unlike PNG (8- or 16-bit, ambiguous) there's no
 bit-depth question. `.r16` stores no width/height, so the export
-function returns `(width, height)` for manual entry on import. Uses
+returns `datasource.HeightmapExportInfo` (width/height in pixels, plus
+auto-computed real-world "Largest dimension"/"Amplitude" in meters —
+Twinmotion's Landscape dialog has no pixel-resolution field at all,
+only these two real-world-meter fields, screenshot-confirmed). Uses
 GDAL + numpy, both already bundled in QGIS's own Python environment — no
 new dependency.
+
+**✅ Live end-to-end confirmed 2026-09-03**: real DEM loaded in QGIS →
+exported as `.r16` → imported into Twinmotion → actual 3D terrain
+rendered, screenshot-verified.
+
+**Scale calculator** (`scale_dialog.HeightmapScaleDialog`) pops up
+automatically on export — Twinmotion's real dialog turned out to cap
+Largest dimension at 8092m and Amplitude at 1024m (undocumented by
+Epic, found by hitting the limit on a Gyeongju-wide DEM). The dialog
+lets the user drag a slider to pick any scale ratio and see the
+resulting values (plus the equivalent standard "1:N" surveying/
+cartography ratio notation) update live, opening pre-filled at the
+largest ratio that fits both caps. `HeightmapExportInfo.exceeds_twinmotion_limits()`
+/ `.twinmotion_recommended_values()` always scale *both* fields by the
+same ratio when over a cap — scaling only one would distort the true
+horizontal:vertical relief ratio.
 
 ## Future integration candidates (research, not yet built)
 

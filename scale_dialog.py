@@ -36,13 +36,15 @@ field's conventions:
 """
 
 from qgis.PyQt.QtCore import Qt
-from qgis.PyQt.QtGui import QStandardItem, QStandardItemModel
+from qgis.PyQt.QtGui import QGuiApplication, QStandardItem, QStandardItemModel
 from qgis.PyQt.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QHBoxLayout,
     QLabel,
+    QPushButton,
     QSlider,
     QSpinBox,
     QVBoxLayout,
@@ -132,6 +134,26 @@ class HeightmapScaleDialog(QDialog):
         self.result_label = QLabel(self)
         self.result_label.setStyleSheet("font-weight: 600;")
         form.addRow("Twinmotion에 입력할 값:", self.result_label)
+
+        # Twinmotion 창엔 입력칸이 2개(Largest dimension, Amplitude)라
+        # 클립보드 복사 하나로 둘 다 채울 수 없음 — 값마다 따로 복사 버튼을
+        # 둬서, Twinmotion 쪽 필요한 칸에 그때그때 붙여넣게 함(사용자 요청:
+        # "확인 누르면 클립보드에 저장" — 버튼 형태로 구현).
+        copy_row = QHBoxLayout()
+        self.copy_dimension_btn = QPushButton("Largest dimension 복사", self)
+        self.copy_dimension_btn.setToolTip("숫자만(단위 없이) 클립보드에 복사합니다.")
+        self.copy_dimension_btn.clicked.connect(self._copy_dimension)
+        copy_row.addWidget(self.copy_dimension_btn)
+
+        self.copy_amplitude_btn = QPushButton("Amplitude 복사", self)
+        self.copy_amplitude_btn.setToolTip("숫자만(단위 없이) 클립보드에 복사합니다.")
+        self.copy_amplitude_btn.clicked.connect(self._copy_amplitude)
+        copy_row.addWidget(self.copy_amplitude_btn)
+        form.addRow("", copy_row)
+
+        self.copy_status_label = QLabel(self)
+        self.copy_status_label.setStyleSheet("color: #3d6b57;")
+        form.addRow("", self.copy_status_label)
 
         self.percent_label = QLabel(self)
         self.percent_label.setStyleSheet("color: gray;")
@@ -227,6 +249,18 @@ class HeightmapScaleDialog(QDialog):
         self.n_spin.blockSignals(False)
         self._recompute(value)
 
+    def _copy_dimension(self) -> None:
+        # 단위(m) 없이 숫자만 — Twinmotion 입력칸이 숫자 전용 필드라
+        # 단위까지 붙이면 붙여넣기가 안 될 수 있음.
+        text = f"{self.chosen_dimension_m:.2f}"
+        QGuiApplication.clipboard().setText(text)
+        self.copy_status_label.setText(f"✓ Largest dimension 값({text})이 클립보드에 저장되었습니다.")
+
+    def _copy_amplitude(self) -> None:
+        text = f"{self.chosen_amplitude_m:.2f}"
+        QGuiApplication.clipboard().setText(text)
+        self.copy_status_label.setText(f"✓ Amplitude 값({text})이 클립보드에 저장되었습니다.")
+
     def _recompute(self, n: int) -> None:
         factor = 1.0 / n
         self.chosen_n = n
@@ -238,6 +272,10 @@ class HeightmapScaleDialog(QDialog):
             f"Amplitude: {self.chosen_amplitude_m:,.2f} m"
         )
         self.percent_label.setText(f"1 : {n:,}  ( {factor * 100:.4g} % )")
+        # 값이 바뀌면 이전 복사 확인 메시지는 더 이상 최신이 아니므로 지움 —
+        # 복사한 숫자가 화면에 보이는 지금 숫자와 다를 수 있다는 걸 숨기지 않음.
+        if hasattr(self, "copy_status_label"):
+            self.copy_status_label.setText("")
 
         over_dimension = self.chosen_dimension_m > TWINMOTION_MAX_LARGEST_DIMENSION_M
         over_amplitude = self.chosen_amplitude_m > TWINMOTION_MAX_AMPLITUDE_M

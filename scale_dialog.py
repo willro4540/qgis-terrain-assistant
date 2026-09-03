@@ -176,6 +176,11 @@ class HeightmapScaleDialog(QDialog):
         self.n_spin.valueChanged.connect(self._on_n_spin_changed)
         self.custom_slider.valueChanged.connect(self._on_custom_slider_changed)
         self._set_custom_mode(False)
+        # 콤보박스 초기 선택을 실제 시작값(N 스핀박스에 이미 넣어둔 fit_n)과
+        # 맞춤 — 안 맞추면 "드롭다운엔 1:1이라고 뜨는데 숫자는 다른 값"이라는
+        # 모순된 첫 화면이 됨(실사용 중 발견해 수정).
+        initial_index = 1 if fit_n > 1 else 0  # 0="1:1", 1="Twinmotion 맞춤"
+        self.combo.setCurrentIndex(initial_index)
         self._recompute(self.n_spin.value())
 
     def _populate_combo(self) -> None:
@@ -226,10 +231,12 @@ class HeightmapScaleDialog(QDialog):
         # never lands on one — no branch needed for that case.
 
     def _set_custom_mode(self, enabled: bool) -> None:
-        """상단 프리셋을 고르면 그 값만 바로 보여주고(N 직접입력 비활성화),
-        "사용자 지정"을 고르면 이전 버전처럼 슬라이더로 자유롭게 조절할 수
-        있게 전환한다 — 두 모드를 하나의 다이얼로그에 같이 둠(사용자 요청)."""
-        self.n_spin.setEnabled(enabled)
+        """"사용자 지정"을 고르면 연속 조절 슬라이더가 추가로 나타난다
+        (드래그로 빠르게 훑어보는 용도). N 직접입력 칸은 실용성 문제로
+        더 이상 이 모드에 안 묶임 — 프리셋을 고른 뒤에도 숫자를 바로
+        미세조정할 수 있어야 "계산기"답다는 실사용 피드백으로 수정
+        (예: 1:100을 고르고 나서 1:105로 살짝 바꾸고 싶을 때, 예전엔
+        "사용자 지정"으로 모드부터 바꿔야 했음)."""
         self.custom_slider.setVisible(enabled)
         if enabled:
             self.custom_slider.setValue(

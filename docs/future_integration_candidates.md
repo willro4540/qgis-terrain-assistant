@@ -119,7 +119,15 @@ Sentinel-2 10m)를 함께 다루므로, Prithvi(HLS 고정 6밴드)보다 Clay�
 Clay 인코더만 1.25GB)을 끌어들이므로, "가벼운 CRS/지도 출력 도구"라는 현재 정체성과
 분리해 선택적 모듈로 붙이는 설계가 필요합니다.
 
-## 6. DEM/이미지 → Twinmotion 지형 내보내기 — 신규 후보(2026-09-03, twinmotion-architecture-study에서 역유입)
+## 6. DEM/이미지 → Twinmotion 지형 내보내기 — 신규 후보(2026-09-03, twinmotion-architecture-study에서 역유입) — ✅ 1단계(하이트맵 PNG) 구현 완료
+
+> **업데이트(2026-09-03)**: `map_export.export_dem_heightmap_png()`로 구현했습니다 — DEM
+> GeoTIFF를 16비트 그레이스케일 PNG로 변환(GDAL MEM+PNG 드라이버, numpy 정규화). QGIS
+> 4.2.1에 GDAL 3.13.2+numpy가 이미 번들돼 있어(직접 확인) 새 의존성 없음. **QGIS 환경
+> 밖에서는 GDAL을 못 불러와 이번 세션에서 pytest로 실행 테스트는 못 함** — 이 파일의
+> 다른 QGIS 의존 함수들(`export_map_png` 등)과 같은 기존 관례. 8비트/16비트 중 16비트를
+> 안전하게 선택(추후 Twinmotion 실제 파일 필터 확인 후 필요시 조정). 아래는 원래 조사
+> 기록(보존).
 
 **출처**: `twinmotion-architecture-study/docs/11` §6 — Cesium/Google 3D Tiles를 Twinmotion에
 직접 못 넣는다는 걸 검증하다가 발견한 우회로. Epic 공식 문서로 확인(등급 a,

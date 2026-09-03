@@ -40,6 +40,85 @@ from qgis.core import (
 )
 
 
+def export_dem_heightmap_png(dem_path: str, output_path: str) -> None:
+    """Convert a DEM GeoTIFF (elevation values) into a 16-bit grayscale
+    heightmap PNG, for Twinmotion's native landscape-import feature (see
+    twinmotion-architecture-study/docs/11 §6 — Twinmotion natively imports
+    heightmap images without any plugin, so this is the qgis-terrain-
+    assistant side of that bridge).
+
+    Normalizes elevation to the FULL 0-65535 range of the exported area
+    (min elevation -> 0, max -> 65535) rather than embedding real-world
+    meters — Twinmotion applies its own vertical "Amplitude" scaling on
+    import (per Epic's official docs), so only the RELATIVE height
+    ordering within the area needs to survive this conversion, not
+    absolute units.
+
+    Chose 16-bit (not 8-bit) deliberately: Twinmotion's exact accepted bit
+    depth for heightmap PNGs is NOT stated in Epic's official docs (see
+    docs/11 §6's "확인 안 됨" note) — 16-bit avoids visible terracing on
+    real terrain and is the safer default. If Twinmotion turns out to
+    need 8-bit, that's a one-line change deferred to whenever this is
+    actually format-verified against the real Twinmotion Import dialog.
+
+    Uses GDAL's Python bindings + numpy — both already bundled with
+    QGIS 4.2.1's own Python environment (confirmed installed at
+    apps/Python312/Lib/site-packages/{GDAL-3.13.2-py3.12.egg-info,numpy},
+    checked directly 2026-09-03) — no new dependency added. The MEM-driver
+    -> WriteArray() -> PNG-driver CreateCopy() pattern below follows
+    GDAL's documented Python Raster API shape (grade b — corroborated via
+    web search of GDAL's own docs and multiple independent examples, not
+    a single official worked example fetched in full this session).
+
+    NOT execution-tested end-to-end in this session (no live QGIS/GDAL
+    environment available here) — same documented limitation as
+    export_map_png/export_3d_scene in this module.
+
+    Raises:
+        ValueError: dem_path isn't openable by GDAL, has no valid
+            elevation data, or is perfectly flat (zero range — can't
+            normalize).
+        RuntimeError: the PNG driver fails to write output_path.
+    """
+    from osgeo import gdal
+    import numpy as np
+
+    dataset = gdal.Open(dem_path)
+    if dataset is None:
+        raise ValueError(f"GDAL could not open {dem_path!r} as a raster")
+
+    band = dataset.GetRasterBand(1)
+    elevation = band.ReadAsArray().astype(np.float64)
+    nodata = band.GetNoDataValue()
+    if nodata is not None:
+        elevation = np.where(elevation == nodata, np.nan, elevation)
+
+    valid = elevation[~np.isnan(elevation)]
+    if valid.size == 0:
+        raise ValueError(f"{dem_path!r} has no valid elevation data")
+
+    min_elev, max_elev = float(valid.min()), float(valid.max())
+    if max_elev == min_elev:
+        raise ValueError(
+            f"{dem_path!r} is perfectly flat (elevation range is zero) — "
+            "cannot normalize to a heightmap"
+        )
+
+    normalized = (elevation - min_elev) / (max_elev - min_elev)
+    normalized = np.nan_to_num(normalized, nan=0.0)  # missing pixels -> lowest point
+    heightmap = (normalized * 65535).astype(np.uint16)
+
+    mem_dataset = gdal.GetDriverByName("MEM").Create(
+        "", dataset.RasterXSize, dataset.RasterYSize, 1, gdal.GDT_UInt16
+    )
+    mem_dataset.GetRasterBand(1).WriteArray(heightmap)
+
+    png_driver = gdal.GetDriverByName("PNG")
+    out_dataset = png_driver.CreateCopy(output_path, mem_dataset, strict=0)
+    if out_dataset is None:
+        raise RuntimeError(f"GDAL's PNG driver failed to write {output_path!r}")
+
+
 def refine_crs(geometry_or_extent, source_epsg: int, target_epsg: int):
     """Reproject a QgsRectangle (or anything QgsCoordinateTransform accepts)
     from source_epsg to target_epsg using QGIS's built-in PROJ transform.

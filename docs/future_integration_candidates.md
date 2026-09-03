@@ -53,7 +53,18 @@ Landsat/Sentinel-2 다운로드 + 지도학습 기반 토지피복 분류를 QGI
 구현체("Remotior Sensus" 라이브러리 기반). **의존성으로 가져오지 않고, "이미 로드된
 위성영상을 분류하는 기능"을 설계할 때 참고 코드로만 사용.**
 
-## 3. Prithvi-EO-2.0 (IBM/NASA/Jülich) — AI 지형분석, 가장 구체적인 연결점 (등급 a)
+## 3. Prithvi-EO-2.0 (IBM/NASA/Jülich) — AI 지형분석 (등급 a, 단 착수 보류 — 아래 정정 참고)
+
+> **정정(2026-09-03, 12밴드 확장 완료 직후 재검토)**: 처음엔 "산사태 태스크는 이미 파인튜닝된
+> 모델이 있으니 데이터 형식만 맞추면 된다"고 판단했으나, `ibm-nasa-geospatial` HF 조직과
+> [`NASA-IMPACT/Prithvi-EO-2.0`](https://github.com/NASA-IMPACT/Prithvi-EO-2.0) 저장소를
+> 다시 확인한 결과 **공개된 건 사전학습 인코더 + Landslide4Sense 데이터셋 + TerraTorch 학습
+> 설정 파일(`landslide.yaml`)뿐이고, 논문의 mIoU 71.3%를 낸 실제 파인튜닝 가중치는 공개돼
+> 있지 않습니다.** 즉 이건 "완성된 모델을 연결하는 일"이 아니라 **300M 모델을 LoRA로 50
+> epoch 직접 학습시켜야 하는 일**입니다 — 요구 컴퓨팅이 추론과는 다른 급이라, "하드웨어는
+> 나중에 최적화"([[feedback_no_hardware_bias_in_future_expansion_analysis]]) 원칙이
+> 적용되는 "느린 추론" 범주가 아니라, DEM 초해상도 모델처럼 **"배포된 완성품이 없어 지금은
+> 통합 불가"** 범주로 재분류합니다. 아래는 원래 조사 기록(보존).
 
 **출처**: [`ibm-nasa-geospatial/Prithvi-EO-2.0-300M`](https://huggingface.co/ibm-nasa-geospatial/Prithvi-EO-2.0-300M)
 (Apache-2.0, 월 다운로드 17,973회, IBM+NASA+Jülich 공동 개발 — 기관 배후로 신뢰 확보).
@@ -107,6 +118,31 @@ Sentinel-2 10m)를 함께 다루므로, Prithvi(HLS 고정 6밴드)보다 Clay�
 다만 실무적으로는 이 두 모델이 이 플러그인에 무거운 의존성(`transformers`/`torch`,
 Clay 인코더만 1.25GB)을 끌어들이므로, "가벼운 CRS/지도 출력 도구"라는 현재 정체성과
 분리해 선택적 모듈로 붙이는 설계가 필요합니다.
+
+## 6. DEM/이미지 → Twinmotion 지형 내보내기 — 신규 후보(2026-09-03, twinmotion-architecture-study에서 역유입)
+
+**출처**: `twinmotion-architecture-study/docs/11` §6 — Cesium/Google 3D Tiles를 Twinmotion에
+직접 못 넣는다는 걸 검증하다가 발견한 우회로. Epic 공식 문서로 확인(등급 a,
+[Overview of Landscapes in Twinmotion](https://dev.epicgames.com/documentation/twinmotion/overview-of-landscapes-in-twinmotion),
+[Importing Landscapes into Twinmotion](https://dev.epicgames.com/documentation/twinmotion/importing-landscapes-into-twinmotion)):
+Twinmotion은 **하이트맵 이미지**, **포인트 파일(`.xyz`)**, 또는 **텍스처를 유지한 메시**를
+네이티브로 임포트하는 지형 기능(`RuntimeLandscape`)을 갖고 있습니다 — 서드파티 플러그인이
+아니라 Twinmotion 본체에 처음부터 내장된 기능이라 쿠킹 빌드 제약을 안 받습니다.
+
+**이 플러그인과의 연결점**: qgis-terrain-assistant는 이미 **DEM(OpenTopography, 고도값)**과
+**위성/베이스맵 텍스처(Sentinel-2, Korea 베이스맵)**를 갖고 있습니다 — Cesium/Google 3D
+Tiles 없이도 이 둘만으로 Twinmotion이 받는 "하이트맵 이미지" 형식을 채울 가능성이 있습니다.
+
+**아직 안 된 것(정직하게)**:
+- 이 플러그인에 DEM GeoTIFF → 그레이스케일 하이트맵 PNG 변환 기능이 없음(신규 개발 필요)
+- Twinmotion이 정확히 어떤 확장자/해상도를 받는지 공식 문서에 명시 안 돼 있어 미확인 —
+  실제 Twinmotion의 Import 대화상자를 열어 파일 필터를 직접 봐야 함
+- 텍스처를 입힌 메시로 내보내는 방식은 하이트맵보다 복잡함(3D 지오메트리 생성 필요) —
+  1단계는 순수 하이트맵 경로가 더 현실적
+
+**통합 방식(제안, 미착수)**: `map_export.py`에 `export_heightmap_png(dem_bytes) -> bytes`
+같은 새 함수 — DEM의 고도값 범위를 0~255로 정규화해 그레이스케일 PNG로 저장하는 순수
+함수(QGIS 의존 없이 GDAL/rasterio나 Pillow만으로 가능할 듯, 미검증).
 
 ## 기각/보류 후보
 

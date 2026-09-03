@@ -9,7 +9,15 @@
 > 근거 등급: (a) 원문 직접 열람 확인 / (b) 검색 스니펫 기반 추론 / (c) 정황상 그럴듯하나
 > 미확인 / (d) 미확인.
 
-## 1. TMS for Korea 플러그인 — 국내 베이스맵 타일 소스 (등급 a)
+## 1. TMS for Korea 플러그인 — 국내 베이스맵 타일 소스 (등급 a) — ✅ 구현 완료(2026-09-03)
+
+> **업데이트(2026-09-03)**: 아래 조사를 바탕으로 `datasource.KoreaBasemapSource`로 실제
+> 구현했습니다(VWorld 3종 + Naver 3종, 툴바 "Load Korea basemap…"). VWorld 타일과 Naver
+> 버전 조회+타일을 직접 `curl`로 찔러 살아있음을 재확인했고, Naver 버전 토큰이 실제로
+> 회전한다는 것도 라이브로 확인(참고 플러그인의 하드코딩 폴백 `1778232861` ≠ 방금 조회한
+> 실제 버전 `1787907321`). 자세한 내용은 `datasource.py`의 `KoreaBasemapSource` 문서와
+> README를 참고. 아래는 원래 조사 기록(그대로 보존).
+
 
 **출처**: [`mangosystem/qgis-tmsforkorea-plugin`](https://github.com/mangosystem/qgis-tmsforkorea-plugin)
 (GPLv2+, 2026-09-03 확인 시점 31★/17 fork/열린 이슈 4건, 배후가 실존 한국 GIS 기업

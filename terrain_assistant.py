@@ -8,13 +8,21 @@ it unloads) — https://docs.qgis.org/latest/en/docs/pyqgis_developer_cookbook/p
 import os
 import tempfile
 
+import urllib.error
+
 from qgis.core import QgsProject, QgsRasterLayer
 from qgis.PyQt.QtGui import QIcon
-from qgis.PyQt.QtWidgets import QAction, QFileDialog, QMessageBox
+from qgis.PyQt.QtWidgets import QAction, QFileDialog, QInputDialog, QMessageBox
 
 from .settings_dialog import ApiKeyDialog, get_api_key, get_sentinelhub_credentials
 from .map_export import export_map_png, refine_crs
-from .datasource import BoundingBox, OpenTopographyDemSource, SentinelHubImagerySource
+from .datasource import (
+    BoundingBox,
+    OpenTopographyDemSource,
+    SentinelHubImagerySource,
+    KoreaBasemapSource,
+    fetch_naver_tile_version,
+)
 
 
 class TerrainAssistantPlugin:
@@ -40,6 +48,14 @@ class TerrainAssistantPlugin:
         self.iface.addToolBarIcon(load_imagery_action)
         self.iface.addPluginToMenu(self.menu, load_imagery_action)
         self.actions.append(load_imagery_action)
+
+        load_korea_basemap_action = QAction(
+            icon, "Load Korea basemap (VWorld/Naver)…", self.iface.mainWindow()
+        )
+        load_korea_basemap_action.triggered.connect(self.run_load_korea_basemap)
+        self.iface.addToolBarIcon(load_korea_basemap_action)
+        self.iface.addPluginToMenu(self.menu, load_korea_basemap_action)
+        self.actions.append(load_korea_basemap_action)
 
         export_action = QAction(icon, "Export current map as PNG", self.iface.mainWindow())
         export_action.triggered.connect(self.run_export)
@@ -195,6 +211,75 @@ class TerrainAssistantPlugin:
         QgsProject.instance().addMapLayer(layer)
         QMessageBox.information(
             self.iface.mainWindow(), "Terrain Assistant", "Imagery layer added to the project."
+        )
+
+    def run_load_korea_basemap(self):
+        """Add a Korea-focused XYZ basemap tile layer (VWorld or Naver Maps
+        v5) to the project — no API key needed for either provider (see
+        datasource.KoreaBasemapSource's docstring, verified against
+        mangosystem/qgis-tmsforkorea-plugin's source, 2026-09-03).
+
+        Unlike run_load_dem()/run_load_sentinel_imagery(), this does not
+        need the current map canvas extent at all — tiles load lazily as
+        the user pans/zooms, so this only needs a provider+style choice.
+        """
+        options = []
+        for style, info in KoreaBasemapSource.VWORLD_STYLES.items():
+            options.append(("vworld", style, info["display_name"]))
+        for style, info in KoreaBasemapSource.NAVER_STYLES.items():
+            options.append(("naver", style, info["display_name"]))
+
+        labels = [display_name for _, _, display_name in options]
+        chosen_label, ok = QInputDialog.getItem(
+            self.iface.mainWindow(),
+            "Terrain Assistant",
+            "Korea basemap:",
+            labels,
+            0,
+            False,
+        )
+        if not ok or not chosen_label:
+            return
+
+        provider, style, display_name = next(
+            (p, s, d) for p, s, d in options if d == chosen_label
+        )
+
+        try:
+            if provider == "vworld":
+                uri = KoreaBasemapSource.vworld_layer_uri(style)
+            else:
+                try:
+                    version = fetch_naver_tile_version(style)
+                except (urllib.error.URLError, urllib.error.HTTPError, ValueError, KeyError):
+                    version = KoreaBasemapSource.NAVER_FALLBACK_VERSION
+                    QMessageBox.warning(
+                        self.iface.mainWindow(),
+                        "Terrain Assistant",
+                        "Could not fetch Naver's live tile version — using a "
+                        f"fallback version ({version}). Tiles may fail to "
+                        "load if Naver has rotated the token since this "
+                        "fallback was last verified.",
+                    )
+                uri = KoreaBasemapSource.naver_layer_uri(style, version)
+        except Exception as exc:  # noqa: BLE001 — surface any failure to the user
+            QMessageBox.critical(
+                self.iface.mainWindow(), "Terrain Assistant — basemap load failed", str(exc)
+            )
+            return
+
+        layer = QgsRasterLayer(uri, display_name, "wms")
+        if not layer.isValid():
+            QMessageBox.critical(
+                self.iface.mainWindow(),
+                "Terrain Assistant",
+                f"'{display_name}' could not be loaded as a raster layer (URI: {uri}).",
+            )
+            return
+
+        QgsProject.instance().addMapLayer(layer)
+        QMessageBox.information(
+            self.iface.mainWindow(), "Terrain Assistant", f"'{display_name}' layer added."
         )
 
     def run_export(self):

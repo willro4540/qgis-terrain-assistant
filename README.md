@@ -1,4 +1,4 @@
-# Terrain Assistant (QGIS plugin, v0.4.0)
+# Terrain Assistant (QGIS plugin, v0.5.0)
 
 A QGIS plugin that refines coordinate reference systems using QGIS's own
 PROJ-based reprojection, and exports a print-quality PNG map (title, scale
@@ -133,15 +133,33 @@ a missing-`.prj` shapefile actually fixed and verified, two NGII products found 
 gotcha, and an honest write-up of an aerial-photo georeferencing attempt that didn't fully
 resolve (documented as an open question, not papered over).
 
+## Korea basemap tiles (VWorld / Naver Maps v5) — v0.5.0
+
+`datasource.KoreaBasemapSource`, wired into the toolbar as "Load Korea
+basemap (VWorld/Naver)…" — adds a no-API-key Korea-focused XYZ basemap tile
+layer (VWorld street/satellite/gray, Naver street/satellite/terrain).
+Unlike the DEM/Sentinel-2 sources above, this isn't a bbox-bounded
+one-shot fetch — it builds a `type=xyz` provider URI and QGIS's own WMS
+provider loads tiles lazily as you pan/zoom. Naver's tile path embeds a
+rotating version token resolved live via `fetch_naver_tile_version()`,
+falling back to a hardcoded version (with a warning) if that lookup
+fails — see `KoreaBasemapSource`'s docstring for live-tested confirmation
+that the version really does rotate. Grew out of
+[`docs/future_integration_candidates.md`](docs/future_integration_candidates.md)'s
+GitHub research (mangosystem/qgis-tmsforkorea-plugin was the verified
+reference for the actual tile URL templates — not reused/copied, only the
+URLs themselves were confirmed against its source).
+
 ## Future integration candidates (research, not yet built)
 
 [`docs/future_integration_candidates.md`](docs/future_integration_candidates.md) —
-GitHub/Hugging Face research (2026-09-03) on what could be integrated next: a
-no-API-key Korean basemap plugin (VWorld/Naver/OSM), a mature land-cover
-classification plugin as a design reference, and two geospatial foundation
-models (Prithvi-EO-2.0, Clay v1.5) — including a concrete finding that
-Prithvi's landslide-detection fine-tune uses exactly this plugin's two
-existing data sources (Sentinel-2 + DEM) as input.
+GitHub/Hugging Face research (2026-09-03) on what else could be integrated:
+a mature land-cover classification plugin as a design reference, and two
+geospatial foundation models (Prithvi-EO-2.0, Clay v1.5) — including a
+concrete finding that Prithvi's landslide-detection fine-tune uses exactly
+this plugin's two existing data sources (Sentinel-2 + DEM) as input. (The
+Korea-basemap candidate from this doc has since been implemented — see
+above.)
 
 ## Installing this plugin into QGIS
 

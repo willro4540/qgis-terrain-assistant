@@ -20,6 +20,8 @@ from datasource import (
     build_opentopography_request_url,
     SentinelHubImagerySource,
     build_sentinelhub_process_request,
+    KoreaBasemapSource,
+    build_xyz_layer_uri,
 )
 
 
@@ -144,3 +146,42 @@ def test_sentinelhub_imagery_source_validates_bbox_before_network():
     with pytest.raises(ValueError):
         # Should raise on bbox validation, not attempt a network call.
         source.fetch(bad_bbox)
+
+
+def test_build_xyz_layer_uri():
+    uri = build_xyz_layer_uri(
+        "https://xdworld.vworld.kr/2d/Base/service/{z}/{x}/{y}.png", zmin=7, zmax=18
+    )
+    assert uri.startswith("type=xyz&url=")
+    assert uri.endswith("&zmax=18&zmin=7")
+    # {z}/{x}/{y} must survive percent-encoding intact (as %7Bz%7D etc.) —
+    # QGIS's WMS provider expects the literal placeholder text encoded, not
+    # substituted at URI-build time.
+    assert "%7Bz%7D" in uri
+    assert "%7Bx%7D" in uri
+    assert "%7By%7D" in uri
+
+
+def test_korea_basemap_source_vworld_styles():
+    for style in ("street", "satellite", "gray"):
+        uri = KoreaBasemapSource.vworld_layer_uri(style)
+        assert uri.startswith("type=xyz&url=")
+        assert "xdworld.vworld.kr" in uri
+
+
+def test_korea_basemap_source_vworld_unknown_style():
+    with pytest.raises(ValueError):
+        KoreaBasemapSource.vworld_layer_uri("does_not_exist")
+
+
+def test_korea_basemap_source_naver_styles():
+    for style in ("street", "satellite", "terrain"):
+        uri = KoreaBasemapSource.naver_layer_uri(style, version="1778232861")
+        assert uri.startswith("type=xyz&url=")
+        assert "map.pstatic.net" in uri
+        assert "1778232861" in uri
+
+
+def test_korea_basemap_source_naver_unknown_style():
+    with pytest.raises(ValueError):
+        KoreaBasemapSource.naver_layer_uri("does_not_exist", version="1778232861")

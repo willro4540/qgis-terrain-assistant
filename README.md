@@ -133,6 +133,16 @@ a missing-`.prj` shapefile actually fixed and verified, two NGII products found 
 gotcha, and an honest write-up of an aerial-photo georeferencing attempt that didn't fully
 resolve (documented as an open question, not papered over).
 
+## Future integration candidates (research, not yet built)
+
+[`docs/future_integration_candidates.md`](docs/future_integration_candidates.md) —
+GitHub/Hugging Face research (2026-09-03) on what could be integrated next: a
+no-API-key Korean basemap plugin (VWorld/Naver/OSM), a mature land-cover
+classification plugin as a design reference, and two geospatial foundation
+models (Prithvi-EO-2.0, Clay v1.5) — including a concrete finding that
+Prithvi's landslide-detection fine-tune uses exactly this plugin's two
+existing data sources (Sentinel-2 + DEM) as input.
+
 ## Installing this plugin into QGIS
 
 1. Copy this folder into your QGIS profile's plugin directory:

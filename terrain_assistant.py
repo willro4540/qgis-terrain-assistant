@@ -95,6 +95,13 @@ class TerrainAssistantPlugin:
         self.iface.addPluginToMenu(self.menu, export_heightmap_png_action)
         self.actions.append(export_heightmap_png_action)
 
+        scale_calculator_action = QAction(
+            "Twinmotion 축척 계산기…", self.iface.mainWindow()
+        )
+        scale_calculator_action.triggered.connect(self.run_scale_calculator_standalone)
+        self.iface.addPluginToMenu(self.menu, scale_calculator_action)
+        self.actions.append(scale_calculator_action)
+
         export_action = QAction(icon, "Export current map as PNG", self.iface.mainWindow())
         export_action.triggered.connect(self.run_export)
         self.iface.addToolBarIcon(export_action)
@@ -433,6 +440,45 @@ class TerrainAssistantPlugin:
             )
             return None
         return layer.source()
+
+    def run_scale_calculator_standalone(self):
+        """Open the Twinmotion scale calculator on its own — independent
+        of exporting a DEM heightmap file (per explicit request: "따로
+        창을 만들어서 계산할 수도 있게" — a standalone way to just check
+        scale numbers, e.g. for a value already known from elsewhere,
+        without going through the whole DEM export flow first).
+
+        Reuses HeightmapScaleDialog as-is (no changes to that class) —
+        the only difference from the export flow's usage is that the
+        "실제 크기" here comes from two manual prompts instead of
+        HeightmapExportInfo computed from an actual DEM raster.
+        """
+        dimension_m, ok = QInputDialog.getDouble(
+            self.iface.mainWindow(),
+            "Terrain Assistant — 축척 계산기",
+            "실제 크기(Largest dimension, 미터):",
+            1000.0,
+            0.01,
+            10_000_000.0,
+            2,
+        )
+        if not ok:
+            return
+
+        amplitude_m, ok = QInputDialog.getDouble(
+            self.iface.mainWindow(),
+            "Terrain Assistant — 축척 계산기",
+            "실제 높이차(Amplitude, 미터):",
+            100.0,
+            0.01,
+            10_000_000.0,
+            2,
+        )
+        if not ok:
+            return
+
+        dialog = HeightmapScaleDialog(dimension_m, amplitude_m, self.iface.mainWindow())
+        dialog.exec()  # 결과는 대화상자 안 복사 버튼으로 바로 씀 — 별도 후속 처리 없음
 
     def run_export_heightmap_r16(self):
         """Convert the selected DEM layer to Twinmotion's native `.r16`

@@ -7,6 +7,8 @@ Run with:
 
 import sys
 import os
+import urllib.error
+from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -22,6 +24,7 @@ from datasource import (
     build_sentinelhub_process_request,
     KoreaBasemapSource,
     build_xyz_layer_uri,
+    probe_tile_reachable,
 )
 
 
@@ -185,3 +188,43 @@ def test_korea_basemap_source_naver_styles():
 def test_korea_basemap_source_naver_unknown_style():
     with pytest.raises(ValueError):
         KoreaBasemapSource.naver_layer_uri("does_not_exist", version="1778232861")
+
+
+def test_probe_tile_reachable_true_on_http_200():
+    """Mocks urlopen so this test doesn't depend on the network — the real
+    live behavior (HTTP 200 for a good VWorld/Naver tile, HTTP 400 for a
+    Naver tile with a bad version) was independently confirmed with real
+    curl requests, 2026-09-03 (see probe_tile_reachable's docstring)."""
+    mock_response = MagicMock()
+    mock_response.status = 200
+    mock_response.__enter__.return_value = mock_response
+    with patch("datasource.urllib.request.urlopen", return_value=mock_response):
+        assert probe_tile_reachable("https://example.com/{z}/{x}/{y}.png") is True
+
+
+def test_probe_tile_reachable_false_on_http_error():
+    with patch(
+        "datasource.urllib.request.urlopen",
+        side_effect=urllib.error.HTTPError("url", 400, "Bad Request", {}, None),
+    ):
+        assert probe_tile_reachable("https://example.com/{z}/{x}/{y}.png") is False
+
+
+def test_probe_tile_reachable_false_on_timeout():
+    with patch(
+        "datasource.urllib.request.urlopen", side_effect=TimeoutError("timed out")
+    ):
+        assert probe_tile_reachable("https://example.com/{z}/{x}/{y}.png") is False
+
+
+def test_korea_basemap_source_url_templates_have_placeholders():
+    """The raw template accessors (used both for the QGIS layer URI and for
+    probe_tile_reachable) must keep literal {z}/{x}/{y} — not pre-filled —
+    since probe_tile_reachable() itself substitutes concrete coordinates.
+    """
+    vworld_template = KoreaBasemapSource.vworld_url_template("street")
+    assert "{z}" in vworld_template and "{x}" in vworld_template and "{y}" in vworld_template
+
+    naver_template = KoreaBasemapSource.naver_url_template("satellite", version="1787907321")
+    assert "{z}" in naver_template and "{x}" in naver_template and "{y}" in naver_template
+    assert "1787907321" in naver_template

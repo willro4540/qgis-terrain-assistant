@@ -22,6 +22,7 @@ from .datasource import (
     SentinelHubImagerySource,
     KoreaBasemapSource,
     fetch_naver_tile_version,
+    probe_tile_reachable,
 )
 
 
@@ -257,11 +258,31 @@ class TerrainAssistantPlugin:
                         self.iface.mainWindow(),
                         "Terrain Assistant",
                         "Could not fetch Naver's live tile version — using a "
-                        f"fallback version ({version}). Tiles may fail to "
-                        "load if Naver has rotated the token since this "
-                        "fallback was last verified.",
+                        f"fallback version ({version}). Checking it still "
+                        "works before loading it…",
                     )
-                uri = KoreaBasemapSource.naver_layer_uri(style, version)
+
+                naver_template = KoreaBasemapSource.naver_url_template(style, version)
+                if probe_tile_reachable(naver_template):
+                    uri = KoreaBasemapSource.naver_layer_uri(style, version)
+                else:
+                    # Safe mode: both the live version lookup AND the
+                    # hardcoded fallback failed to serve a real tile — don't
+                    # add a layer that would silently show as "valid" but
+                    # render blank. Fall back to VWorld street instead,
+                    # which needs no version token at all and is this
+                    # plugin's most reliable basemap path.
+                    QMessageBox.warning(
+                        self.iface.mainWindow(),
+                        "Terrain Assistant — safe mode",
+                        "Naver tiles are unreachable right now (both the live "
+                        "version lookup and the fallback version failed a "
+                        "real tile check) — loading VWorld street basemap "
+                        "instead as a safe fallback. Try Naver again later.",
+                    )
+                    provider, style = "vworld", "street"
+                    display_name = KoreaBasemapSource.VWORLD_STYLES["street"]["display_name"]
+                    uri = KoreaBasemapSource.vworld_layer_uri(style)
         except Exception as exc:  # noqa: BLE001 — surface any failure to the user
             QMessageBox.critical(
                 self.iface.mainWindow(), "Terrain Assistant — basemap load failed", str(exc)

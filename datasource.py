@@ -475,25 +475,41 @@ class KoreaBasemapSource:
     NAVER_FALLBACK_VERSION = "1778232861"
 
     @classmethod
-    def vworld_layer_uri(cls, style: str) -> str:
+    def vworld_url_template(cls, style: str) -> str:
+        """Raw XYZ template with literal {z}/{x}/{y} placeholders — used
+        both to build the QGIS layer URI and, separately, to probe a
+        concrete tile via probe_tile_reachable() before committing to it.
+        """
         if style not in cls.VWORLD_STYLES:
             raise ValueError(
                 f"unknown VWorld style: {style!r} (choices: {list(cls.VWORLD_STYLES)})"
             )
-        info = cls.VWORLD_STYLES[style]
-        return build_xyz_layer_uri(info["url_template"], info["zmin"], info["zmax"])
+        return cls.VWORLD_STYLES[style]["url_template"]
 
     @classmethod
-    def naver_layer_uri(cls, style: str, version: str) -> str:
+    def vworld_layer_uri(cls, style: str) -> str:
+        template = cls.vworld_url_template(style)
+        info = cls.VWORLD_STYLES[style]
+        return build_xyz_layer_uri(template, info["zmin"], info["zmax"])
+
+    @classmethod
+    def naver_url_template(cls, style: str, version: str) -> str:
+        """Raw XYZ template with literal {z}/{x}/{y} placeholders (version
+        already substituted in) — same purpose as vworld_url_template()."""
         if style not in cls.NAVER_STYLES:
             raise ValueError(
                 f"unknown Naver style: {style!r} (choices: {list(cls.NAVER_STYLES)})"
             )
         info = cls.NAVER_STYLES[style]
-        template = (
+        return (
             f"https://map.pstatic.net/nrb/styles/{info['style_path']}/{version}"
             f"/{{z}}/{{x}}/{{y}}@2x.png?{info['mt_param']}"
         )
+
+    @classmethod
+    def naver_layer_uri(cls, style: str, version: str) -> str:
+        template = cls.naver_url_template(style, version)
+        info = cls.NAVER_STYLES[style]
         return build_xyz_layer_uri(template, info["zmin"], info["zmax"])
 
 
@@ -509,6 +525,37 @@ def fetch_naver_tile_version(style: str, timeout: int = 3) -> str:
     url = KoreaBasemapSource.NAVER_VERSION_URL_TEMPLATE.format(style=style)
     with urllib.request.urlopen(url, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))["version"]
+
+
+def probe_tile_reachable(
+    url_template: str, z: int = 7, x: int = 110, y: int = 48, timeout: int = 3
+) -> bool:
+    """Check whether a concrete tile actually loads right now — a "safe
+    mode" probe used before committing to a basemap choice whose
+    reachability isn't guaranteed by URL construction alone (see
+    KoreaBasemapSource docstring: Naver's version token rotates, so even
+    the hardcoded NAVER_FALLBACK_VERSION can eventually go stale).
+
+    Returns True only on an HTTP 200 HEAD response for one real tile
+    (default z/x/y = a Seoul-area coordinate, matching the coordinate this
+    project already live-tested with, 2026-09-03). Returns False on ANY
+    failure (non-200 status, timeout, network error) — this function never
+    raises, so callers can use it as a plain go/no-go check without a
+    try/except of their own.
+
+    VERIFIED 2026-09-03 (grade (a) — directly probed): HEAD requests
+    return HTTP 200 for both VWorld and Naver's real tile endpoints, and
+    HTTP 400 for a Naver tile URL with a deliberately invalid version
+    token — confirming this probe actually distinguishes a live template
+    from a dead one, not just checking the server is reachable at all.
+    """
+    url = url_template.format(z=z, x=x, y=y)
+    try:
+        request = urllib.request.Request(url, method="HEAD")
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.status == 200
+    except Exception:
+        return False
 
 
 def build_xyz_layer_uri(url_template: str, zmin: int, zmax: int) -> str:

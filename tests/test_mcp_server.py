@@ -44,11 +44,12 @@ def _tool_names():
     return {t.name for t in tools}
 
 
-def test_all_five_tools_registered():
+def test_all_six_tools_registered():
     names = _tool_names()
     assert names == {
         "load_dem",
         "load_sentinel_imagery",
+        "load_sentinel_imagery_full_bands",
         "refine_crs",
         "export_map_png",
         "export_3d_scene",
@@ -82,6 +83,23 @@ def test_load_sentinel_imagery_requires_credentials():
 def test_load_sentinel_imagery_rejects_invalid_bbox():
     with pytest.raises(ValueError):
         mcp_server.load_sentinel_imagery(
+            south=38.0, north=37.0, west=126.0, east=127.0,  # south > north
+            client_id="FAKE-CLIENT-ID-NOT-REAL",
+            client_secret="FAKE-CLIENT-SECRET-NOT-REAL",
+        )
+
+
+def test_load_sentinel_imagery_full_bands_requires_credentials():
+    with pytest.raises(ValueError):
+        mcp_server.load_sentinel_imagery_full_bands(
+            south=37.0, north=38.0, west=126.0, east=127.0,
+            client_id="", client_secret="",  # deliberately empty, not real
+        )
+
+
+def test_load_sentinel_imagery_full_bands_rejects_invalid_bbox():
+    with pytest.raises(ValueError):
+        mcp_server.load_sentinel_imagery_full_bands(
             south=38.0, north=37.0, west=126.0, east=127.0,  # south > north
             client_id="FAKE-CLIENT-ID-NOT-REAL",
             client_secret="FAKE-CLIENT-SECRET-NOT-REAL",

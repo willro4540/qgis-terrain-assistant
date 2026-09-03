@@ -71,8 +71,12 @@ Sentinel-2 조화 산출물) 6밴드, 4.2M 샘플(2014-2023).
 논문 인용). 이건 이 플러그인이 **이미 갖고 있는 두 데이터소스(OpenTopography DEM,
 Sentinel Hub Sentinel-2)를 그대로 조합**하는 태스크입니다.
 
-**선행 작업 필요**: 현재 `SentinelHubImagerySource`는 트루컬러 3밴드만 받아옵니다 — 이
-태스크를 쓰려면 12밴드 전체를 받아오도록 확장해야 합니다(아직 미착수).
+**선행 작업 — ✅ 완료(2026-09-03)**: `SentinelHubImagerySource.ALL_BANDS_EVALSCRIPT`로
+12밴드 전체(B01/B02/B03/B04/B05/B06/B07/B08/B8A/B09/B11/B12, FLOAT32 반사율)를 받아오도록
+확장했습니다. 밴드 목록은 Sentinel Hub 공식 문서(L2A 밴드 목록)에서 직접 확인, evalscript
+구조(output.sampleType/다중밴드 반환)도 공식 evalscript v3 문서로 검증했습니다. 툴바
+"Load Sentinel-2 imagery (12-band, full spectrum)…", MCP 툴 `load_sentinel_imagery_full_bands`
+로 연결. **Prithvi 모델 자체는 아직 미통합** — 이건 그 통합의 선행조건만 치운 것입니다.
 
 **다른 검증된 다운스트림 태스크**(참고용, 전부 논문 원문 인용): 홍수 매핑(Sen1Floods11,
 mIoU 90.0~90.3%), 산불흔적 매핑(mIoU 90.5%), 작물 분류(F1 84.4~84.6%).

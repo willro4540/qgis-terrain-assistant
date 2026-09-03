@@ -148,6 +148,46 @@ def load_sentinel_imagery(
 
 
 @mcp.tool()
+def load_sentinel_imagery_full_bands(
+    south: float,
+    north: float,
+    west: float,
+    east: float,
+    client_id: str,
+    client_secret: str,
+    time_from: str = "2026-06-01T00:00:00Z",
+    time_to: str = "2026-06-30T00:00:00Z",
+    output_path: str = "sentinel_12band_output.tif",
+) -> str:
+    """Fetch all 12 Sentinel-2 L2A optical bands (FLOAT32 reflectance, NOT
+    a true-color visualization) for the given lon/lat bounding box and
+    save it to output_path — the analysis-oriented counterpart to
+    load_sentinel_imagery, kept as a SEPARATE tool rather than a `bands`
+    parameter on load_sentinel_imagery, per this project's existing
+    convention (2D/3D export kept as separate explicit tools, not blended).
+
+    Same credential/bbox requirements as load_sentinel_imagery. See
+    datasource.SentinelHubImagerySource.ALL_BANDS_EVALSCRIPT's docstring
+    for exactly which 12 bands and why (prerequisite for the
+    Prithvi-EO-2.0 landslide-detection candidate documented in
+    docs/future_integration_candidates.md §3 — this tool alone does not
+    run that model).
+
+    Returns the output_path on success.
+    """
+    bbox = BoundingBox(min_lon=west, min_lat=south, max_lon=east, max_lat=north)
+    source = SentinelHubImagerySource(
+        client_id=client_id,
+        client_secret=client_secret,
+        evalscript=SentinelHubImagerySource.ALL_BANDS_EVALSCRIPT,
+    )
+    data = source.fetch(bbox, time_from=time_from, time_to=time_to)
+    with open(output_path, "wb") as f:
+        f.write(data)
+    return output_path
+
+
+@mcp.tool()
 def refine_crs(
     min_x: float,
     min_y: float,

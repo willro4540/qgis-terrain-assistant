@@ -40,10 +40,18 @@ convention, `docs/06_crs_coordinate_systems.md` for the CRS/PROJ approach).
   ("Set API keys…") for storing the OpenTopography key and Sentinel Hub
   OAuth credentials via `QgsSettings` (not hardcoded).
 - **MCP server** (`mcp_server.py`, MCP added in v0.3.0, `load_sentinel_imagery`
-  added in v0.4.0) — exposes `load_dem`, `load_sentinel_imagery`,
-  `refine_crs`, `export_map_png`, and `export_3d_scene` as MCP tools so
-  Claude Code / Claude Desktop can drive this plugin's real functions
-  directly via natural language. See "AI integration (MCP server)" below.
+  added in v0.4.0, `load_sentinel_imagery_full_bands` added in v0.5.0) —
+  exposes `load_dem`, `load_sentinel_imagery`,
+  `load_sentinel_imagery_full_bands`, `refine_crs`, `export_map_png`, and
+  `export_3d_scene` as MCP tools so Claude Code / Claude Desktop can drive
+  this plugin's real functions directly via natural language. See "AI
+  integration (MCP server)" below.
+- **Sentinel-2 12-band (full spectrum) loading** (`SentinelHubImagerySource.ALL_BANDS_EVALSCRIPT`,
+  new in v0.5.0), wired into the toolbar as "Load Sentinel-2 imagery
+  (12-band, full spectrum)…" — fetches all 12 Sentinel-2 L2A optical bands
+  as FLOAT32 reflectance (not a true-color visualization) for analysis
+  use (e.g. NDVI, or as input to a model expecting full-spectrum
+  Sentinel-2 data). Same credentials as the true-color imagery above.
 
 ## Getting an OpenTopography API key (needed for DEM loading)
 

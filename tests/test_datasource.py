@@ -141,6 +141,62 @@ def test_sentinelhub_imagery_source_requires_credentials():
         source.fetch(bbox)
 
 
+def test_all_bands_evalscript_has_12_bands_in_order():
+    """Prerequisite for docs/future_integration_candidates.md §3 (Prithvi
+    landslide task expects 12-band Sentinel-2). Bands must appear in the
+    same order in input.bands and evaluatePixel()'s return array — verified
+    by construction here (both lists are hand-written in the same order in
+    datasource.py), pinned so a future edit can't silently desync them.
+    """
+    expected_bands = [
+        "B01", "B02", "B03", "B04", "B05", "B06",
+        "B07", "B08", "B8A", "B09", "B11", "B12",
+    ]
+    script = SentinelHubImagerySource.ALL_BANDS_EVALSCRIPT
+    assert '"bands": 12' not in script  # sanity: not accidentally the wrong key
+    assert "bands: 12" in script
+    assert 'sampleType: "FLOAT32"' in script
+    for band in expected_bands:
+        assert f'"{band}"' in script  # present in input.bands
+        assert f"sample.{band}" in script  # present in evaluatePixel()
+    # Order check: each band's position in input.bands must match its
+    # position in the evaluatePixel() return list.
+    input_order = [b for b in expected_bands if f'"{b}"' in script]
+    output_order_text = script.split("evaluatePixel(sample)")[1]
+    output_order = [
+        b for b in expected_bands
+        if f"sample.{b}" in output_order_text
+    ]
+    assert input_order == expected_bands
+    assert output_order == expected_bands
+
+
+def test_build_sentinelhub_process_request_with_all_bands_evalscript():
+    """The request-building function is evalscript-agnostic — confirm it
+    accepts ALL_BANDS_EVALSCRIPT the same way it accepts TRUE_COLOR."""
+    bbox = BoundingBox(min_lon=126.0, min_lat=37.0, max_lon=127.0, max_lat=38.0)
+    body = build_sentinelhub_process_request(
+        bbox=bbox,
+        data_collection="S2L2A",
+        time_from="2026-06-01T00:00:00Z",
+        time_to="2026-06-30T00:00:00Z",
+        width=512,
+        height=512,
+        evalscript=SentinelHubImagerySource.ALL_BANDS_EVALSCRIPT,
+    )
+    assert body["evalscript"] == SentinelHubImagerySource.ALL_BANDS_EVALSCRIPT
+    assert "B8A" in body["evalscript"]
+
+
+def test_sentinelhub_imagery_source_accepts_all_bands_evalscript():
+    source = SentinelHubImagerySource(
+        client_id="FAKE-CLIENT-ID-NOT-REAL",
+        client_secret="FAKE-CLIENT-SECRET-NOT-REAL",
+        evalscript=SentinelHubImagerySource.ALL_BANDS_EVALSCRIPT,
+    )
+    assert source.evalscript == SentinelHubImagerySource.ALL_BANDS_EVALSCRIPT
+
+
 def test_sentinelhub_imagery_source_validates_bbox_before_network():
     source = SentinelHubImagerySource(
         client_id="FAKE-CLIENT-ID-NOT-REAL", client_secret="FAKE-CLIENT-SECRET-NOT-REAL"

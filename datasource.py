@@ -279,6 +279,46 @@ class SentinelHubImagerySource(TerrainDataSource):
         "}"
     )
 
+    #: All 12 Sentinel-2 L2A optical bands as FLOAT32 reflectance — NOT a
+    #: visualization script like TRUE_COLOR_EVALSCRIPT above, this is raw
+    #: multispectral data meant for downstream analysis (e.g. NDVI, or
+    #: feeding a model that expects full-band Sentinel-2 input).
+    #:
+    #: VERIFIED 2026-09-03 (grade (a), official Sentinel Hub docs,
+    #: https://docs.sentinel-hub.com/api/latest/data/sentinel-2-l2a/):
+    #: L2A exposes exactly these 12 optical bands (B10/cirrus is an L1C-only
+    #: band, dropped in L2A's atmospheric-correction pipeline, so L2A never
+    #: has 13) — resolution per band: 10m (B02/B03/B04/B08), 20m
+    #: (B05/B06/B07/B8A/B11/B12), 60m (B01/B09). This matches the "Sentinel-2
+    #: multispectral 12 bands" input Prithvi-EO-2.0's Landslide4Sense
+    #: fine-tune expects (see docs/future_integration_candidates.md §3) —
+    #: this evalscript is a prerequisite for that, not the integration
+    #: itself.
+    #:
+    #: setup()/evaluatePixel() structure verified (grade (a), official
+    #: evalscript v3 docs, https://docs.sentinel-hub.com/api/latest/evalscript/v3/):
+    #: multi-band FLOAT32 output uses `output: { bands: N, sampleType:
+    #: "FLOAT32" }` and evaluatePixel() returns an array in the same band
+    #: order as `input.bands`. The exact 12-band script body below was
+    #: composed from that verified structure (not copied from an official
+    #: "all bands" example — the docs describe the pattern but don't
+    #: publish one ready-made for all 12 L2A bands).
+    ALL_BANDS_EVALSCRIPT = (
+        "//VERSION=3\n"
+        "function setup() {\n"
+        "  return {\n"
+        "    input: [\"B01\", \"B02\", \"B03\", \"B04\", \"B05\", \"B06\",\n"
+        "            \"B07\", \"B08\", \"B8A\", \"B09\", \"B11\", \"B12\"],\n"
+        "    output: { bands: 12, sampleType: \"FLOAT32\" }\n"
+        "  }\n"
+        "}\n"
+        "function evaluatePixel(sample) {\n"
+        "  return [sample.B01, sample.B02, sample.B03, sample.B04,\n"
+        "          sample.B05, sample.B06, sample.B07, sample.B08,\n"
+        "          sample.B8A, sample.B09, sample.B11, sample.B12];\n"
+        "}"
+    )
+
     def __init__(
         self,
         client_id: str,

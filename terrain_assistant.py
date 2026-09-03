@@ -50,6 +50,16 @@ class TerrainAssistantPlugin:
         self.iface.addPluginToMenu(self.menu, load_imagery_action)
         self.actions.append(load_imagery_action)
 
+        load_imagery_fullband_action = QAction(
+            icon, "Load Sentinel-2 imagery (12-band, full spectrum)…", self.iface.mainWindow()
+        )
+        load_imagery_fullband_action.triggered.connect(
+            self.run_load_sentinel_imagery_full_bands
+        )
+        self.iface.addToolBarIcon(load_imagery_fullband_action)
+        self.iface.addPluginToMenu(self.menu, load_imagery_fullband_action)
+        self.actions.append(load_imagery_fullband_action)
+
         load_korea_basemap_action = QAction(
             icon, "Load Korea basemap (VWorld/Naver)…", self.iface.mainWindow()
         )
@@ -80,6 +90,22 @@ class TerrainAssistantPlugin:
         if dialog.exec_():
             dialog.save()
 
+    def _canvas_extent_4326(self):
+        """Return the current map canvas extent reprojected to EPSG:4326
+        (lon/lat degrees) — the shape every bbox-based data source in this
+        plugin (OpenTopography, Sentinel Hub) requires. Uses refine_crs()
+        (QGIS's own PROJ transform, already used by the PNG-export path).
+        Factored out of run_load_dem()/run_load_sentinel_imagery() since a
+        third caller (run_load_sentinel_imagery_full_bands) needs the same
+        four lines.
+        """
+        canvas = self.iface.mapCanvas()
+        canvas_crs = canvas.mapSettings().destinationCrs()
+        canvas_epsg = canvas_crs.postgisSrid()  # numeric EPSG code, e.g. 4326, 3857, 5186
+        if canvas_epsg == 4326:
+            return canvas.extent()
+        return refine_crs(canvas.extent(), canvas_epsg, 4326)
+
     def run_load_dem(self):
         """Fetch a Copernicus GLO-30 DEM covering the current map canvas
         extent from OpenTopography and add it to the project as a raster
@@ -100,16 +126,8 @@ class TerrainAssistantPlugin:
             )
             return
 
-        canvas = self.iface.mapCanvas()
-        canvas_crs = canvas.mapSettings().destinationCrs()
-        canvas_epsg = canvas_crs.postgisSrid()  # numeric EPSG code, e.g. 4326, 3857, 5186
-
         try:
-            if canvas_epsg == 4326:
-                extent_4326 = canvas.extent()
-            else:
-                extent_4326 = refine_crs(canvas.extent(), canvas_epsg, 4326)
-
+            extent_4326 = self._canvas_extent_4326()
             bbox = BoundingBox(
                 min_lon=extent_4326.xMinimum(),
                 min_lat=extent_4326.yMinimum(),
@@ -167,16 +185,8 @@ class TerrainAssistantPlugin:
             )
             return
 
-        canvas = self.iface.mapCanvas()
-        canvas_crs = canvas.mapSettings().destinationCrs()
-        canvas_epsg = canvas_crs.postgisSrid()
-
         try:
-            if canvas_epsg == 4326:
-                extent_4326 = canvas.extent()
-            else:
-                extent_4326 = refine_crs(canvas.extent(), canvas_epsg, 4326)
-
+            extent_4326 = self._canvas_extent_4326()
             bbox = BoundingBox(
                 min_lon=extent_4326.xMinimum(),
                 min_lat=extent_4326.yMinimum(),
@@ -212,6 +222,77 @@ class TerrainAssistantPlugin:
         QgsProject.instance().addMapLayer(layer)
         QMessageBox.information(
             self.iface.mainWindow(), "Terrain Assistant", "Imagery layer added to the project."
+        )
+
+    def run_load_sentinel_imagery_full_bands(self):
+        """Fetch all 12 Sentinel-2 L2A optical bands (FLOAT32 reflectance,
+        not a true-color visualization) covering the current map canvas
+        extent, and add it as a raster layer.
+
+        Same credentials/CRS-refinement path as run_load_sentinel_imagery()
+        — the only difference is the evalscript
+        (SentinelHubImagerySource.ALL_BANDS_EVALSCRIPT instead of the
+        default TRUE_COLOR_EVALSCRIPT), so the resulting GeoTIFF has 12
+        bands instead of 3 and is meant for analysis (e.g. NDVI, or as
+        input to a model expecting full-spectrum Sentinel-2 data) rather
+        than direct viewing. See datasource.py's ALL_BANDS_EVALSCRIPT
+        docstring for why this specific 12-band combination was chosen —
+        it's the prerequisite for docs/future_integration_candidates.md
+        §3's Prithvi-EO-2.0 landslide-detection candidate, not that
+        integration itself.
+        """
+        client_id, client_secret = get_sentinelhub_credentials()
+        if not client_id or not client_secret:
+            QMessageBox.warning(
+                self.iface.mainWindow(),
+                "Terrain Assistant",
+                "No Sentinel Hub credentials set. Use 'Set API keys…' first "
+                "— register a free OAuth client at "
+                "https://apps.sentinel-hub.com/dashboard/#/account/settings",
+            )
+            return
+
+        try:
+            extent_4326 = self._canvas_extent_4326()
+            bbox = BoundingBox(
+                min_lon=extent_4326.xMinimum(),
+                min_lat=extent_4326.yMinimum(),
+                max_lon=extent_4326.xMaximum(),
+                max_lat=extent_4326.yMaximum(),
+            )
+            source = SentinelHubImagerySource(
+                client_id=client_id,
+                client_secret=client_secret,
+                evalscript=SentinelHubImagerySource.ALL_BANDS_EVALSCRIPT,
+            )
+            image_bytes = source.fetch(bbox)
+        except Exception as exc:  # noqa: BLE001 — surface any fetch failure to the user
+            QMessageBox.critical(
+                self.iface.mainWindow(), "Terrain Assistant — imagery load failed", str(exc)
+            )
+            return
+
+        tif_path = tempfile.NamedTemporaryFile(
+            prefix="terrain_assistant_sentinel_12band_", suffix=".tif", delete=False
+        ).name
+        with open(tif_path, "wb") as f:
+            f.write(image_bytes)
+
+        layer = QgsRasterLayer(tif_path, "Sentinel-2 L2A imagery (12-band)")
+        if not layer.isValid():
+            QMessageBox.critical(
+                self.iface.mainWindow(),
+                "Terrain Assistant",
+                f"Sentinel Hub response could not be loaded as a raster layer "
+                f"(saved to {tif_path} for inspection).",
+            )
+            return
+
+        QgsProject.instance().addMapLayer(layer)
+        QMessageBox.information(
+            self.iface.mainWindow(),
+            "Terrain Assistant",
+            "12-band Sentinel-2 layer added to the project.",
         )
 
     def run_load_korea_basemap(self):

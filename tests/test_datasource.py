@@ -25,6 +25,9 @@ from datasource import (
     KoreaBasemapSource,
     build_xyz_layer_uri,
     probe_tile_reachable,
+    HeightmapExportInfo,
+    TWINMOTION_MAX_AMPLITUDE_M,
+    TWINMOTION_MAX_LARGEST_DIMENSION_M,
 )
 
 
@@ -284,3 +287,68 @@ def test_korea_basemap_source_url_templates_have_placeholders():
     naver_template = KoreaBasemapSource.naver_url_template("satellite", version="1787907321")
     assert "{z}" in naver_template and "{x}" in naver_template and "{y}" in naver_template
     assert "1787907321" in naver_template
+
+
+def test_heightmap_export_info_within_limits_not_scaled():
+    """Real Gwangju DEM values from 2026-09-03's first successful
+    end-to-end Twinmotion import (43x17 px, amplitude ~69-70m,
+    dimensions well under Twinmotion's caps)."""
+    info = HeightmapExportInfo(
+        width_px=43, height_px=17, largest_dimension_m=1290.0, amplitude_m=69.15
+    )
+    assert info.exceeds_twinmotion_limits() is False
+    dimension, amplitude, scaled = info.twinmotion_recommended_values()
+    assert dimension == 1290.0
+    assert amplitude == 69.15
+    assert scaled is False
+
+
+def test_heightmap_export_info_over_limit_scales_both_proportionally():
+    """Real Gyeongju-wide DEM values from the same session (347x135 px,
+    largest_dimension_m ~8696 > TWINMOTION_MAX_LARGEST_DIMENSION_M 8092 —
+    the case that prompted adding the cap-aware scaling in the first
+    place). Both fields must shrink by the SAME ratio, not just the
+    over-limit one, or the terrain's relief ratio gets distorted.
+    """
+    info = HeightmapExportInfo(
+        width_px=347, height_px=135, largest_dimension_m=8696.3, amplitude_m=273.03
+    )
+    assert info.exceeds_twinmotion_limits() is True
+
+    dimension, amplitude, scaled = info.twinmotion_recommended_values()
+    assert scaled is True
+    # pytest.approx tolerates the float rounding from the division/
+    # multiplication round-trip (e.g. 8092.000000000001) — this is a
+    # floating-point precision artifact, not a real values-exceed-cap bug.
+    assert dimension == pytest.approx(TWINMOTION_MAX_LARGEST_DIMENSION_M, rel=1e-9)
+    assert amplitude <= TWINMOTION_MAX_AMPLITUDE_M
+
+    # Both values must have been scaled by the exact same ratio.
+    dimension_ratio = dimension / info.largest_dimension_m
+    amplitude_ratio = amplitude / info.amplitude_m
+    assert dimension_ratio == pytest.approx(amplitude_ratio, rel=1e-9)
+
+    # The binding constraint here is the dimension cap (8696/8092 ratio),
+    # not the amplitude cap (273/1024 would allow much more headroom) —
+    # confirms min() picks the tighter constraint correctly.
+    expected_ratio = TWINMOTION_MAX_LARGEST_DIMENSION_M / 8696.3
+    assert dimension_ratio == pytest.approx(expected_ratio, rel=1e-9)
+
+
+def test_heightmap_export_info_amplitude_only_over_limit():
+    """A narrow, very tall DEM: dimension is fine but amplitude alone
+    exceeds the cap — the amplitude cap must be the binding constraint.
+    """
+    info = HeightmapExportInfo(width_px=10, height_px=10, largest_dimension_m=500.0, amplitude_m=2000.0)
+    assert info.exceeds_twinmotion_limits() is True
+    dimension, amplitude, scaled = info.twinmotion_recommended_values()
+    assert scaled is True
+    assert amplitude == pytest.approx(TWINMOTION_MAX_AMPLITUDE_M, rel=1e-9)
+    assert dimension < 500.0  # scaled down too, to preserve the ratio
+
+
+def test_heightmap_export_info_none_dimension_raises_on_recommend():
+    info = HeightmapExportInfo(width_px=10, height_px=10, largest_dimension_m=None, amplitude_m=50.0)
+    assert info.exceeds_twinmotion_limits() is False  # amplitude alone is fine
+    with pytest.raises(ValueError):
+        info.twinmotion_recommended_values()

@@ -15,11 +15,14 @@ from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction, QFileDialog, QInputDialog, QMessageBox
 
 from .settings_dialog import ApiKeyDialog, get_api_key, get_sentinelhub_credentials
+from .scale_dialog import HeightmapScaleDialog
 from .map_export import (
     export_map_png,
     export_dem_heightmap_png,
     export_dem_heightmap_r16,
     refine_crs,
+    TWINMOTION_MAX_AMPLITUDE_M,
+    TWINMOTION_MAX_LARGEST_DIMENSION_M,
 )
 from .datasource import (
     BoundingBox,
@@ -434,9 +437,12 @@ class TerrainAssistantPlugin:
         docstring — verified 2026-09-03 against Twinmotion 2026.2's own
         Import file-type dropdown, screenshot-confirmed).
 
-        `.r16` stores no width/height metadata — Twinmotion's import step
-        needs the resolution entered manually, so this shows it to the
-        user rather than just silently writing the file.
+        Twinmotion's Landscape import dialog has no pixel-resolution
+        field at all — only "Largest dimension" and "Amplitude", both in
+        real-world meters (screenshot-confirmed same session). This shows
+        both, auto-computed, so the user doesn't have to hand-compute
+        latitude-corrected degree-to-meter conversions themselves (which
+        is exactly what happened the first time this was used).
         """
         dem_path = self._active_dem_layer_source()
         if dem_path is None:
@@ -452,19 +458,57 @@ class TerrainAssistantPlugin:
             return
 
         try:
-            width, height = export_dem_heightmap_r16(dem_path, output_path)
+            info = export_dem_heightmap_r16(dem_path, output_path)
         except Exception as exc:  # noqa: BLE001 — surface any conversion failure to the user
             QMessageBox.critical(
                 self.iface.mainWindow(), "Terrain Assistant — heightmap export failed", str(exc)
             )
             return
 
+        if info.largest_dimension_m is not None:
+            # Let the user pick the scale ratio themselves (per their own
+            # request for a "proper tool", not just one auto-computed
+            # answer) — opens pre-filled with the largest ratio that fits
+            # both of Twinmotion's real dialog caps.
+            scale_dialog = HeightmapScaleDialog(
+                info.largest_dimension_m, info.amplitude_m, self.iface.mainWindow()
+            )
+            if scale_dialog.exec():
+                dimension_m = scale_dialog.chosen_dimension_m
+                amplitude_m = scale_dialog.chosen_amplitude_m
+            else:
+                # User cancelled the scale picker — fall back to the
+                # cap-fit recommendation rather than losing the export.
+                dimension_m, amplitude_m, _ = info.twinmotion_recommended_values()
+
+            twinmotion_hint = (
+                f"In Twinmotion's Import ▸ Landscape dialog, set:\n"
+                f"  Largest dimension: {dimension_m:.0f} m\n"
+                f"  Amplitude: {amplitude_m:.0f} m"
+            )
+            if (
+                dimension_m > TWINMOTION_MAX_LARGEST_DIMENSION_M
+                or amplitude_m > TWINMOTION_MAX_AMPLITUDE_M
+            ):
+                twinmotion_hint += (
+                    "\n\n⚠ This still exceeds Twinmotion's actual dialog limits "
+                    f"(Largest dimension max {TWINMOTION_MAX_LARGEST_DIMENSION_M:.0f} m, "
+                    f"Amplitude max {TWINMOTION_MAX_AMPLITUDE_M:.0f} m) — Twinmotion will "
+                    "cap whatever you enter."
+                )
+        else:
+            twinmotion_hint = (
+                "Could not auto-compute real-world size (source CRS is neither "
+                "geographic nor projected-in-meters) — check QGIS layer "
+                "Properties ▸ Information for the extent, and set Twinmotion's "
+                f"Amplitude to {info.amplitude_m:.0f} m."
+            )
+
         QMessageBox.information(
             self.iface.mainWindow(),
             "Terrain Assistant",
-            f"Exported {width}x{height} heightmap to {output_path}.\n\n"
-            f"Twinmotion's .r16 import doesn't read resolution from the file — "
-            f"enter {width} x {height} manually when importing.",
+            f"Exported {info.width_px}x{info.height_px} heightmap to {output_path}.\n\n"
+            f"{twinmotion_hint}",
         )
 
     def run_export_heightmap_png(self):

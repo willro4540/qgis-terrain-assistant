@@ -39,6 +39,26 @@ from qgis.core import (
     QgsUnitTypes,
 )
 
+from .datasource import (
+    HeightmapExportInfo,
+    METERS_PER_DEGREE_LATITUDE,
+    TWINMOTION_MAX_AMPLITUDE_M,
+    TWINMOTION_MAX_LARGEST_DIMENSION_M,
+)
+
+# Re-exported for backwards-compatible imports (`from .map_export import
+# TWINMOTION_MAX_AMPLITUDE_M` etc. still works) — the actual definitions
+# live in datasource.py now so they're unit-testable without QGIS (see
+# that module's docstring: "This module contains NO QGIS imports"). The
+# GDAL-dependent math that PRODUCES a HeightmapExportInfo stays here,
+# since reading a GeoTIFF's geotransform/CRS genuinely needs GDAL.
+__all__ = [
+    "HeightmapExportInfo",
+    "METERS_PER_DEGREE_LATITUDE",
+    "TWINMOTION_MAX_AMPLITUDE_M",
+    "TWINMOTION_MAX_LARGEST_DIMENSION_M",
+]
+
 
 def export_dem_heightmap_png(dem_path: str, output_path: str) -> None:
     """Convert a DEM GeoTIFF (elevation values) into a 16-bit grayscale
@@ -119,7 +139,7 @@ def export_dem_heightmap_png(dem_path: str, output_path: str) -> None:
         raise RuntimeError(f"GDAL's PNG driver failed to write {output_path!r}")
 
 
-def export_dem_heightmap_r16(dem_path: str, output_path: str) -> tuple[int, int]:
+def export_dem_heightmap_r16(dem_path: str, output_path: str) -> HeightmapExportInfo:
     """Convert a DEM GeoTIFF into Twinmotion's native `.r16` heightmap
     format — a headerless raw dump of 16-bit unsigned little-endian
     integers in row-major order (VERIFIED 2026-09-03, grade a: the user
@@ -147,22 +167,44 @@ def export_dem_heightmap_r16(dem_path: str, output_path: str) -> tuple[int, int]
     (confirmed by the format's own definition, not just this DEM's case).
     Twinmotion's heightmap importer needs the resolution entered manually
     when importing a raw file, so the caller MUST track/report the
-    returned (width, height) alongside the file — losing that pairing
-    makes the .r16 file unusable.
+    returned width/height alongside the file — losing that pairing makes
+    the .r16 file unusable.
+
+    ALSO COMPUTES the real-world "Largest dimension" and "Amplitude"
+    values Twinmotion's Import dialog actually asks for (VERIFIED
+    2026-09-03: the dialog has NO pixel-resolution field at all — only
+    these two, in meters — screenshot-confirmed, see
+    twinmotion-architecture-study/docs/11 §6-1). Previously the user had
+    to compute these by hand from QGIS's layer Properties (extent in
+    lon/lat degrees + band statistics), including latitude-correcting the
+    longitude-to-meters conversion — this does that automatically instead.
+    For a geographic (lon/lat) source CRS, longitude degrees are converted
+    to meters via cos(mid-latitude) (see METERS_PER_DEGREE_LATITUDE) —
+    an approximation, not survey-grade, but well within what's needed to
+    set two Twinmotion dialog fields. For a projected (already-meters)
+    CRS, pixel size is used directly with no conversion. Any other
+    (non-geographic, non-meters) linear unit is NOT handled — that case
+    returns largest_dimension_m=None rather than silently guessing a
+    conversion factor.
 
     NOT execution-tested end-to-end in this session (no live QGIS/GDAL
     environment here) — same documented limitation as this module's other
-    QGIS-dependent functions.
+    QGIS-dependent functions. The dimension math itself WAS independently
+    verified: hand-computed by Claude for a real DEM this session (경주
+    extent, EPSG:4326) and the result matched what this function's logic
+    produces for the same inputs.
 
     Returns:
-        (width, height) in pixels — must be recorded/shown to the user
-        alongside output_path, since the file itself doesn't carry it.
+        HeightmapExportInfo — record/show this to the user alongside
+        output_path, since the .r16 file itself carries none of it.
 
     Raises:
         ValueError: dem_path isn't openable by GDAL, has no valid
             elevation data, or is perfectly flat (zero range).
     """
-    from osgeo import gdal
+    import math
+
+    from osgeo import gdal, osr
     import numpy as np
 
     dataset = gdal.Open(dem_path)
@@ -191,7 +233,42 @@ def export_dem_heightmap_r16(dem_path: str, output_path: str) -> tuple[int, int]
     heightmap = (normalized * 65535).astype("<u2")  # explicit little-endian uint16
 
     heightmap.tofile(output_path)
-    return dataset.RasterXSize, dataset.RasterYSize
+
+    width_px, height_px = dataset.RasterXSize, dataset.RasterYSize
+    geotransform = dataset.GetGeoTransform()
+    pixel_width_abs = abs(geotransform[1])
+    pixel_height_abs = abs(geotransform[5])
+
+    srs = osr.SpatialReference()
+    srs.ImportFromWkt(dataset.GetProjection())
+
+    largest_dimension_m = None
+    if srs.IsGeographic():
+        min_lon = geotransform[0]
+        max_lat = geotransform[3]
+        max_lon = min_lon + pixel_width_abs * width_px
+        min_lat = max_lat - pixel_height_abs * height_px
+        mid_lat = (min_lat + max_lat) / 2
+        m_per_deg_lon = METERS_PER_DEGREE_LATITUDE * math.cos(math.radians(mid_lat))
+        width_m = (max_lon - min_lon) * m_per_deg_lon
+        height_m = (max_lat - min_lat) * METERS_PER_DEGREE_LATITUDE
+        largest_dimension_m = max(width_m, height_m)
+    elif srs.IsProjected():
+        # Linear units already meters (or convert via GetLinearUnits()'s
+        # to-meters factor) — OpenTopography's globaldem is geographic-only
+        # in practice, so this branch is untested against a real file this
+        # session, only structurally reasoned from GDAL's documented API.
+        to_meters = srs.GetLinearUnits()
+        width_m = pixel_width_abs * width_px * to_meters
+        height_m = pixel_height_abs * height_px * to_meters
+        largest_dimension_m = max(width_m, height_m)
+
+    return HeightmapExportInfo(
+        width_px=width_px,
+        height_px=height_px,
+        largest_dimension_m=largest_dimension_m,
+        amplitude_m=max_elev - min_elev,
+    )
 
 
 def refine_crs(geometry_or_extent, source_epsg: int, target_epsg: int):

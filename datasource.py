@@ -648,3 +648,107 @@ def build_sentinelhub_process_request(
         },
         "evalscript": evalscript,
     }
+
+
+#: Mean meters-per-degree-of-latitude on the WGS84 ellipsoid (standard
+#: approximation, e.g. used by NOAA's own "latitude/longitude distance"
+#: reference material) — accurate to within ~1% at any latitude, which is
+#: plenty for setting Twinmotion's "Largest dimension"/"Amplitude" fields
+#: (not a survey-grade measurement). Longitude's meters-per-degree varies
+#: with latitude (shrinks toward the poles) and is computed per-DEM in
+#: map_export.export_dem_heightmap_r16() via cos(latitude); latitude's
+#: does not, so this single constant covers both once combined with cos().
+METERS_PER_DEGREE_LATITUDE = 111320.0
+
+#: Twinmotion 2026.2's Landscape import dialog caps ("Largest dimension"
+#: and "Amplitude" fields) — VERIFIED 2026-09-03, grade (a): the user hit
+#: these live in the real dialog (Largest dimension capped at 8092 m,
+#: Amplitude capped at 1024 m) while importing a Gyeongju-wide DEM whose
+#: computed largest_dimension_m (~8696 m) exceeded the first cap. Not
+#: documented by Epic anywhere this session found — this is empirical,
+#: from hitting the actual UI limit, not from official docs. Could change
+#: in a future Twinmotion version; if a cap check here ever contradicts
+#: what the real dialog accepts, trust the dialog and update these.
+TWINMOTION_MAX_LARGEST_DIMENSION_M = 8092.0
+TWINMOTION_MAX_AMPLITUDE_M = 1024.0
+
+
+@dataclass
+class HeightmapExportInfo:
+    """Everything the user needs to fill in Twinmotion's Landscape import
+    dialog, computed automatically instead of by hand (see qgis-terrain-
+    assistant's manual, "실제 수치를 봐야면" — the user had to hand-compute
+    this with latitude-corrected degree-to-meter math the first time,
+    2026-09-03; this makes that a one-time cost, not a recurring one).
+
+    Lives here (not map_export.py, which builds it) so its pure
+    arithmetic — exceeds_twinmotion_limits(), twinmotion_recommended_values()
+    — stays unit-testable without QGIS, per this module's own no-QGIS-
+    imports design (see module docstring).
+    """
+
+    width_px: int
+    height_px: int
+    #: The DEM's real-world footprint, longer side, in meters — maps
+    #: directly to Twinmotion's "Largest dimension" field. None if the
+    #: source CRS wasn't geographic (lon/lat) and wasn't in meters either,
+    #: so this couldn't be computed without guessing a unit conversion.
+    #: May exceed TWINMOTION_MAX_LARGEST_DIMENSION_M — the raw computed
+    #: value is still returned as-is (not silently clamped) so the caller
+    #: can decide how to warn the user; see exceeds_twinmotion_limits().
+    largest_dimension_m: float | None
+    #: max elevation - min elevation, in the DEM's own vertical unit
+    #: (meters for OpenTopography's datasets) — maps directly to
+    #: Twinmotion's "Amplitude" field. May exceed
+    #: TWINMOTION_MAX_AMPLITUDE_M — see exceeds_twinmotion_limits().
+    amplitude_m: float
+
+    def exceeds_twinmotion_limits(self) -> bool:
+        """True if either computed value is over what Twinmotion's real
+        Import dialog actually accepts (see the two constants above)."""
+        dimension_over = (
+            self.largest_dimension_m is not None
+            and self.largest_dimension_m > TWINMOTION_MAX_LARGEST_DIMENSION_M
+        )
+        amplitude_over = self.amplitude_m > TWINMOTION_MAX_AMPLITUDE_M
+        return dimension_over or amplitude_over
+
+    def twinmotion_recommended_values(self) -> tuple[float, float, bool]:
+        """Values to actually type into Twinmotion's dialog.
+
+        If nothing exceeds Twinmotion's caps, returns the true computed
+        (largest_dimension_m, amplitude_m) unchanged, scaled=False.
+
+        If either exceeds its cap, scales BOTH values down by the SAME
+        ratio (whichever field is the tighter constraint) rather than
+        clamping each field independently — clamping only the field
+        that's over would change the horizontal:vertical ratio and
+        visibly distort the terrain (e.g. capping just the width while
+        leaving the true Amplitude makes slopes look steeper than real).
+        Scaling both together keeps the true relief ratio, just at a
+        smaller overall size than the DEM's real extent. Returns
+        scaled=True in this case so the caller can tell the user their
+        DEM's real size wasn't fully preserved.
+
+        Raises:
+            ValueError: largest_dimension_m is None (couldn't be computed
+                for this DEM's CRS — nothing to scale against).
+        """
+        if self.largest_dimension_m is None:
+            raise ValueError(
+                "largest_dimension_m is None — can't compute Twinmotion values "
+                "without a known real-world size (see HeightmapExportInfo docstring)"
+            )
+        if not self.exceeds_twinmotion_limits():
+            return self.largest_dimension_m, self.amplitude_m, False
+
+        scale_factor = min(
+            TWINMOTION_MAX_LARGEST_DIMENSION_M / self.largest_dimension_m,
+            TWINMOTION_MAX_AMPLITUDE_M / self.amplitude_m,
+            1.0,
+        )
+        return (
+            self.largest_dimension_m * scale_factor,
+            self.amplitude_m * scale_factor,
+            True,
+        )

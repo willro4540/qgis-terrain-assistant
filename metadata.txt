@@ -2,8 +2,8 @@
 name=Terrain Assistant
 qgisMinimumVersion=3.28
 description=Coordinate-refined terrain layers + third-party-ready PNG map export
-about=Loads terrain/elevation data via OpenTopography's Global DEM API (Copernicus GLO-30, global coverage including Korea) and Sentinel-2 imagery via Sentinel Hub, adds no-API-key Korea basemap tiles (VWorld/Naver Maps v5), refines coordinate reference systems using QGIS's built-in PROJ-based reprojection (no custom CRS math), and exports a print-quality PNG map (title, scale bar, legend) suitable for handing to a third party. The original V-World-specific elevation data source is kept as a documented dead end (see README "Historical note") since V-World's DEM API was discontinued in 2019.
-version=0.5.0
+about=Loads terrain/elevation data via OpenTopography's Global DEM API (Copernicus GLO-30, global coverage including Korea) and Sentinel-2 imagery via Sentinel Hub, adds no-API-key Korea basemap tiles (VWorld/Naver Maps v5), exports DEM as a Twinmotion-native heightmap (.r16/.png), refines coordinate reference systems using QGIS's built-in PROJ-based reprojection (no custom CRS math), and exports a print-quality PNG map (title, scale bar, legend) suitable for handing to a third party. The original V-World-specific elevation data source is kept as a documented dead end (see README "Historical note") since V-World's DEM API was discontinued in 2019.
+version=0.6.0
 author=willro4540
 email=dev08@basiclike.kr
 repository=

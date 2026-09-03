@@ -15,7 +15,12 @@ from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction, QFileDialog, QInputDialog, QMessageBox
 
 from .settings_dialog import ApiKeyDialog, get_api_key, get_sentinelhub_credentials
-from .map_export import export_map_png, refine_crs
+from .map_export import (
+    export_map_png,
+    export_dem_heightmap_png,
+    export_dem_heightmap_r16,
+    refine_crs,
+)
 from .datasource import (
     BoundingBox,
     OpenTopographyDemSource,
@@ -67,6 +72,22 @@ class TerrainAssistantPlugin:
         self.iface.addToolBarIcon(load_korea_basemap_action)
         self.iface.addPluginToMenu(self.menu, load_korea_basemap_action)
         self.actions.append(load_korea_basemap_action)
+
+        export_heightmap_r16_action = QAction(
+            icon, "Export DEM as heightmap (.r16, for Twinmotion)…", self.iface.mainWindow()
+        )
+        export_heightmap_r16_action.triggered.connect(self.run_export_heightmap_r16)
+        self.iface.addToolBarIcon(export_heightmap_r16_action)
+        self.iface.addPluginToMenu(self.menu, export_heightmap_r16_action)
+        self.actions.append(export_heightmap_r16_action)
+
+        export_heightmap_png_action = QAction(
+            icon, "Export DEM as heightmap (.png, 16-bit preview)…", self.iface.mainWindow()
+        )
+        export_heightmap_png_action.triggered.connect(self.run_export_heightmap_png)
+        self.iface.addToolBarIcon(export_heightmap_png_action)
+        self.iface.addPluginToMenu(self.menu, export_heightmap_png_action)
+        self.actions.append(export_heightmap_png_action)
 
         export_action = QAction(icon, "Export current map as PNG", self.iface.mainWindow())
         export_action.triggered.connect(self.run_export)
@@ -382,6 +403,100 @@ class TerrainAssistantPlugin:
         QgsProject.instance().addMapLayer(layer)
         QMessageBox.information(
             self.iface.mainWindow(), "Terrain Assistant", f"'{display_name}' layer added."
+        )
+
+    def _active_dem_layer_source(self):
+        """Return the file path of the currently selected DEM raster layer
+        in the Layers panel, or None with a warning shown if there isn't
+        one. Shared by run_export_heightmap_r16()/run_export_heightmap_png().
+
+        Design: operates on iface.activeLayer() (the user selects their
+        already-loaded DEM in the Layers panel first) rather than
+        re-fetching from OpenTopography — matches run_export()'s existing
+        pattern of working on whatever's already loaded, not doing its own
+        network fetch. Use "Load DEM from OpenTopography…" first to get a
+        DEM layer to select.
+        """
+        layer = self.iface.activeLayer()
+        if layer is None or not hasattr(layer, "source"):
+            QMessageBox.warning(
+                self.iface.mainWindow(),
+                "Terrain Assistant",
+                "Select a DEM raster layer in the Layers panel first — e.g. "
+                "one loaded via 'Load DEM from OpenTopography…'.",
+            )
+            return None
+        return layer.source()
+
+    def run_export_heightmap_r16(self):
+        """Convert the selected DEM layer to Twinmotion's native `.r16`
+        heightmap format (see map_export.export_dem_heightmap_r16's
+        docstring — verified 2026-09-03 against Twinmotion 2026.2's own
+        Import file-type dropdown, screenshot-confirmed).
+
+        `.r16` stores no width/height metadata — Twinmotion's import step
+        needs the resolution entered manually, so this shows it to the
+        user rather than just silently writing the file.
+        """
+        dem_path = self._active_dem_layer_source()
+        if dem_path is None:
+            return
+
+        output_path, _ = QFileDialog.getSaveFileName(
+            self.iface.mainWindow(),
+            "Export heightmap for Twinmotion",
+            "",
+            "Raw 16-bit heightmap (*.r16)",
+        )
+        if not output_path:
+            return
+
+        try:
+            width, height = export_dem_heightmap_r16(dem_path, output_path)
+        except Exception as exc:  # noqa: BLE001 — surface any conversion failure to the user
+            QMessageBox.critical(
+                self.iface.mainWindow(), "Terrain Assistant — heightmap export failed", str(exc)
+            )
+            return
+
+        QMessageBox.information(
+            self.iface.mainWindow(),
+            "Terrain Assistant",
+            f"Exported {width}x{height} heightmap to {output_path}.\n\n"
+            f"Twinmotion's .r16 import doesn't read resolution from the file — "
+            f"enter {width} x {height} manually when importing.",
+        )
+
+    def run_export_heightmap_png(self):
+        """Convert the selected DEM layer to a 16-bit grayscale heightmap
+        PNG (see map_export.export_dem_heightmap_png's docstring). Useful
+        for a quick visual preview outside Twinmotion — prefer
+        run_export_heightmap_r16() when feeding Twinmotion directly, since
+        `.r16`'s bit depth is unambiguous by format definition.
+        """
+        dem_path = self._active_dem_layer_source()
+        if dem_path is None:
+            return
+
+        output_path, _ = QFileDialog.getSaveFileName(
+            self.iface.mainWindow(),
+            "Export heightmap preview",
+            "",
+            "PNG image (*.png)",
+        )
+        if not output_path:
+            return
+
+        try:
+            export_dem_heightmap_png(dem_path, output_path)
+        except Exception as exc:  # noqa: BLE001 — surface any conversion failure to the user
+            QMessageBox.critical(
+                self.iface.mainWindow(), "Terrain Assistant — heightmap export failed", str(exc)
+            )
+            return
+
+        QMessageBox.information(
+            self.iface.mainWindow(), "Terrain Assistant", f"Exported heightmap preview to {output_path}."
         )
 
     def run_export(self):

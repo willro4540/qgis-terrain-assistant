@@ -1,4 +1,4 @@
-# Terrain Assistant (QGIS plugin, v0.5.0)
+# Terrain Assistant (QGIS plugin, v0.6.0)
 
 A QGIS plugin that refines coordinate reference systems using QGIS's own
 PROJ-based reprojection, and exports a print-quality PNG map (title, scale
@@ -157,6 +157,25 @@ that the version really does rotate. Grew out of
 GitHub research (mangosystem/qgis-tmsforkorea-plugin was the verified
 reference for the actual tile URL templates — not reused/copied, only the
 URLs themselves were confirmed against its source).
+
+## DEM → Twinmotion heightmap export — v0.6.0
+
+`map_export.export_dem_heightmap_r16()` / `export_dem_heightmap_png()`,
+wired into the toolbar as "Export DEM as heightmap (.r16, for
+Twinmotion)…" and "…(.png, 16-bit preview)…" — converts the currently
+selected DEM raster layer (e.g. one loaded via "Load DEM from
+OpenTopography…") into a heightmap file Twinmotion imports natively, no
+plugin needed. Grew out of a cross-repo finding in
+[`twinmotion-architecture-study/docs/11`](https://github.com/willro4540/twinmotion-architecture-study/blob/master/docs/11_cesium_3d_tiles_geospatial_bridge.md):
+Twinmotion's own `RuntimeLandscape` feature imports heightmap images
+directly (confirmed live by opening Twinmotion 2026.2's own Import
+dialog — its "Heightmaps" filter accepts exactly `*.r16;*.png`). `.r16`
+is preferred for actual use — it's a headerless raw 16-bit unsigned
+little-endian format, so unlike PNG (8- or 16-bit, ambiguous) there's no
+bit-depth question. `.r16` stores no width/height, so the export
+function returns `(width, height)` for manual entry on import. Uses
+GDAL + numpy, both already bundled in QGIS's own Python environment — no
+new dependency.
 
 ## Future integration candidates (research, not yet built)
 

@@ -119,7 +119,15 @@ Sentinel-2 10m)를 함께 다루므로, Prithvi(HLS 고정 6밴드)보다 Clay�
 Clay 인코더만 1.25GB)을 끌어들이므로, "가벼운 CRS/지도 출력 도구"라는 현재 정체성과
 분리해 선택적 모듈로 붙이는 설계가 필요합니다.
 
-## 6. DEM/이미지 → Twinmotion 지형 내보내기 — 신규 후보(2026-09-03, twinmotion-architecture-study에서 역유입) — ✅ 구현 완료(PNG + r16)
+## 6. DEM/이미지 → Twinmotion 지형 내보내기 — 신규 후보(2026-09-03, twinmotion-architecture-study에서 역유입) — ✅ 종단간 실증 완료
+
+> **최종 업데이트(2026-09-03)**: 사용자가 실제로 QGIS(광주 지역 DEM 로드) →
+> `export_dem_heightmap_r16()`(43×17 `.r16`) → Twinmotion Landscape import까지 전부
+> 직접 실행했고, **실제로 3D 지형이 렌더링됨을 스크린샷으로 확인**했습니다(등급 a). 이
+> 기능은 더 이상 "구현됨"이 아니라 "실제로 동작 검증됨" 상태입니다. 기본 Amplitude(512m)가
+> 실제 고도 범위(~70m)보다 훨씬 커서 시각적으로 과장된(뾰족한) 지형이 나왔는데, 이는
+> 데이터/파이프라인 문제가 아니라 스케일 설정 문제 — 상세 기록은
+> `twinmotion-architecture-study/docs/11` §6-1 참고.
 
 > **업데이트(2026-09-03)**: `map_export.export_dem_heightmap_png()`(16비트 PNG)와
 > `map_export.export_dem_heightmap_r16()`(네이티브 `.r16`, 명확히 16비트) 둘 다 구현했습니다.

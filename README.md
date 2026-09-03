@@ -340,6 +340,18 @@ the exact source), but treat them as "correct per official docs, not yet
 execution-tested" until you load the plugin into a real QGIS session and
 try the toolbar button.
 
+## 다음 목표 — 정식 버전(2026-09-03 기준 계획)
+
+지금은 `metadata.txt`에 `experimental=True`가 걸린 실험판입니다. 오늘 DEM/Sentinel-2/
+Korea 베이스맵/하이트맵/축척계산기까지 실제 QGIS+Twinmotion으로 종단간 검증됐으니,
+다음번엔 이를 보강해서 **정식 버전**으로 만드는 게 목표입니다. 후보 작업(우선순위 미정):
+
+- `experimental=True` → `False` 전환 전에 전체 기능 재점검
+- 진짜 아이콘(`icon.png`) 제작 — 지금은 없어도 되게(QIcon() 폴백) 짜여있지만 정식판엔 필요
+- 베타 표시된 기능(스무딩) 실제 QGIS 환경에서 실행 테스트 후 라벨 제거 여부 결정
+- `speckle-architecture-study`에서 도출한 패턴(DEM 해시 기반 중복방지, 사이드카 출처추적) 적용 검토
+- (QGIS 공식 플러그인 저장소에 공개할지는 별도 결정 필요 — 지금은 비공개 개인용)
+
 ## License
 
 MIT — see [LICENSE](./LICENSE).

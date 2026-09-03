@@ -22,7 +22,9 @@ from qgis.PyQt.QtWidgets import (
     QDialogButtonBox,
     QDoubleSpinBox,
     QFormLayout,
+    QHBoxLayout,
     QLabel,
+    QPushButton,
     QSlider,
     QVBoxLayout,
     QWidget,
@@ -70,6 +72,29 @@ class HeightmapScaleDialog(QDialog):
             1.0,
         )
         default_percent = round(fit_factor * 100, 1)
+
+        # Quick-preset buttons — round 1:N ratios (the standard surveying/
+        # cartography scale notation this dialog already displays, see
+        # _recompute()'s ratio_label) plus the one non-round but practical
+        # preset, "Twinmotion 맞춤" (fit-to-cap, same value the dialog
+        # opens on by default). Each just sets percent_spin — the existing
+        # valueChanged signal chain (_on_percent_spin_changed -> slider +
+        # _recompute) handles the rest, no separate logic needed here.
+        preset_row = QHBoxLayout()
+        presets = [
+            ("1:1 (실제크기)", 100.0),
+            ("1:2", 50.0),
+            ("1:4", 25.0),
+            ("1:10", 10.0),
+            ("Twinmotion 맞춤", default_percent),
+        ]
+        for label, percent_value in presets:
+            button = QPushButton(label, self)
+            button.clicked.connect(
+                lambda checked=False, p=percent_value: self.percent_spin.setValue(p)
+            )
+            preset_row.addWidget(button)
+        form.addRow("빠른 선택:", preset_row)
 
         self.percent_spin = QDoubleSpinBox(self)
         self.percent_spin.setRange(1.0, 100.0)

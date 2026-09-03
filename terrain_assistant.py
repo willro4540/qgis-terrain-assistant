@@ -5,6 +5,7 @@ exist: initGui() (called when the plugin loads) and unload() (called when
 it unloads) — https://docs.qgis.org/latest/en/docs/pyqgis_developer_cookbook/plugins/plugins.html
 """
 
+import datetime
 import os
 import tempfile
 
@@ -16,6 +17,7 @@ from qgis.PyQt.QtWidgets import QAction, QFileDialog, QInputDialog, QMessageBox
 
 from .settings_dialog import ApiKeyDialog, get_api_key, get_sentinelhub_credentials
 from .scale_dialog import HeightmapScaleDialog
+from .export_options_dialog import HeightmapExportOptionsDialog
 from .map_export import (
     export_map_png,
     export_dem_heightmap_png,
@@ -31,6 +33,7 @@ from .datasource import (
     KoreaBasemapSource,
     fetch_naver_tile_version,
     probe_tile_reachable,
+    build_heightmap_sidecar_text,
 )
 
 
@@ -448,6 +451,12 @@ class TerrainAssistantPlugin:
         if dem_path is None:
             return
 
+        options_dialog = HeightmapExportOptionsDialog(self.iface.mainWindow())
+        if not options_dialog.exec():
+            return
+        upsample_factor = options_dialog.upsample_factor
+        apply_smoothing = options_dialog.apply_smoothing
+
         output_path, _ = QFileDialog.getSaveFileName(
             self.iface.mainWindow(),
             "Export heightmap for Twinmotion",
@@ -458,13 +467,16 @@ class TerrainAssistantPlugin:
             return
 
         try:
-            info = export_dem_heightmap_r16(dem_path, output_path)
+            info = export_dem_heightmap_r16(
+                dem_path, output_path, upsample_factor=upsample_factor, smoothing=apply_smoothing
+            )
         except Exception as exc:  # noqa: BLE001 — surface any conversion failure to the user
             QMessageBox.critical(
                 self.iface.mainWindow(), "Terrain Assistant — heightmap export failed", str(exc)
             )
             return
 
+        scale_n = 1.0
         if info.largest_dimension_m is not None:
             # Let the user pick the scale ratio themselves (per their own
             # request for a "proper tool", not just one auto-computed
@@ -476,10 +488,12 @@ class TerrainAssistantPlugin:
             if scale_dialog.exec():
                 dimension_m = scale_dialog.chosen_dimension_m
                 amplitude_m = scale_dialog.chosen_amplitude_m
+                scale_n = scale_dialog.chosen_n
             else:
                 # User cancelled the scale picker — fall back to the
                 # cap-fit recommendation rather than losing the export.
                 dimension_m, amplitude_m, _ = info.twinmotion_recommended_values()
+                scale_n = info.largest_dimension_m / dimension_m if dimension_m else 1.0
 
             twinmotion_hint = (
                 f"In Twinmotion's Import ▸ Landscape dialog, set:\n"
@@ -497,6 +511,8 @@ class TerrainAssistantPlugin:
                     "cap whatever you enter."
                 )
         else:
+            dimension_m = None
+            amplitude_m = info.amplitude_m
             twinmotion_hint = (
                 "Could not auto-compute real-world size (source CRS is neither "
                 "geographic nor projected-in-meters) — check QGIS layer "
@@ -504,11 +520,34 @@ class TerrainAssistantPlugin:
                 f"Amplitude to {info.amplitude_m:.0f} m."
             )
 
+        # Persist the result next to the .r16 — per feedback that nothing
+        # survived past the popup ("확인하고 따로 주는건 없네"). Twinmotion
+        # itself can't read this (no sidecar/metadata support in its
+        # Landscape import, confirmed) — it's a durable human reference,
+        # not something auto-loaded.
+        sidecar_path = f"{output_path}.txt"
+        sidecar_text = build_heightmap_sidecar_text(
+            dem_source_path=dem_path,
+            heightmap_output_path=output_path,
+            info=info,
+            dimension_m=dimension_m,
+            amplitude_m=amplitude_m,
+            scale_n=scale_n,
+            exported_at=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        )
+        try:
+            with open(sidecar_path, "w", encoding="utf-8") as f:
+                f.write(sidecar_text)
+            sidecar_note = f"\n\n값을 기록해뒀습니다: {sidecar_path}"
+        except OSError as exc:  # noqa: BLE001 — sidecar write failure shouldn't hide the export success
+            sidecar_note = f"\n\n(참고 파일 저장 실패: {exc})"
+
         QMessageBox.information(
             self.iface.mainWindow(),
             "Terrain Assistant",
             f"Exported {info.width_px}x{info.height_px} heightmap to {output_path}.\n\n"
-            f"{twinmotion_hint}",
+            f"{twinmotion_hint}"
+            f"{sidecar_note}",
         )
 
     def run_export_heightmap_png(self):
@@ -522,6 +561,12 @@ class TerrainAssistantPlugin:
         if dem_path is None:
             return
 
+        options_dialog = HeightmapExportOptionsDialog(self.iface.mainWindow())
+        if not options_dialog.exec():
+            return
+        upsample_factor = options_dialog.upsample_factor
+        apply_smoothing = options_dialog.apply_smoothing
+
         output_path, _ = QFileDialog.getSaveFileName(
             self.iface.mainWindow(),
             "Export heightmap preview",
@@ -532,7 +577,9 @@ class TerrainAssistantPlugin:
             return
 
         try:
-            export_dem_heightmap_png(dem_path, output_path)
+            export_dem_heightmap_png(
+                dem_path, output_path, upsample_factor=upsample_factor, smoothing=apply_smoothing
+            )
         except Exception as exc:  # noqa: BLE001 — surface any conversion failure to the user
             QMessageBox.critical(
                 self.iface.mainWindow(), "Terrain Assistant — heightmap export failed", str(exc)

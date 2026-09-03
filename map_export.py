@@ -60,7 +60,85 @@ __all__ = [
 ]
 
 
-def export_dem_heightmap_png(dem_path: str, output_path: str) -> None:
+def _open_and_prepare_elevation(dem_path: str, upsample_factor: int, smoothing: bool):
+    """Shared by export_dem_heightmap_png/r16: open dem_path, optionally
+    upsample (GDAL cubic-spline) and/or smooth (scipy gaussian_filter,
+    BETA), and return (dataset, elevation_array, min_elev, max_elev).
+    Factored out so the two sibling export functions can't drift out of
+    sync on this shared logic. See export_dem_heightmap_r16's docstring
+    for the full rationale/verification status of each step.
+
+    Raises:
+        ValueError: dem_path isn't openable by GDAL, upsample_factor < 1,
+            has no valid elevation data, or is perfectly flat.
+    """
+    from osgeo import gdal
+    import numpy as np
+
+    if upsample_factor < 1:
+        raise ValueError(f"upsample_factor must be >= 1, got {upsample_factor!r}")
+
+    dataset = gdal.Open(dem_path)
+    if dataset is None:
+        raise ValueError(f"GDAL could not open {dem_path!r} as a raster")
+
+    if upsample_factor > 1:
+        warped = gdal.Warp(
+            "",
+            dataset,
+            format="MEM",
+            width=dataset.RasterXSize * upsample_factor,
+            height=dataset.RasterYSize * upsample_factor,
+            resampleAlg=gdal.GRA_CubicSpline,
+        )
+        if warped is None:
+            raise ValueError(
+                f"GDAL failed to upsample {dem_path!r} by factor {upsample_factor}"
+            )
+        dataset = warped
+
+    band = dataset.GetRasterBand(1)
+    elevation = band.ReadAsArray().astype(np.float64)
+    nodata = band.GetNoDataValue()
+    if nodata is not None:
+        elevation = np.where(elevation == nodata, np.nan, elevation)
+
+    if smoothing:
+        # BETA, not execution-tested this session — see
+        # export_dem_heightmap_r16's docstring for the full rationale.
+        # No native NaN handling in gaussian_filter, so nodata pixels are
+        # temporarily filled with the valid mean, smoothed, then
+        # re-masked back to NaN — smoothing never blends a placeholder
+        # into a genuinely-valid neighboring pixel.
+        from scipy import ndimage
+
+        nan_mask = np.isnan(elevation)
+        if nan_mask.any():
+            fill_value = float(np.nanmean(elevation))
+            smoothing_input = np.where(nan_mask, fill_value, elevation)
+        else:
+            smoothing_input = elevation
+        elevation = ndimage.gaussian_filter(smoothing_input, sigma=1.0)
+        if nan_mask.any():
+            elevation = np.where(nan_mask, np.nan, elevation)
+
+    valid = elevation[~np.isnan(elevation)]
+    if valid.size == 0:
+        raise ValueError(f"{dem_path!r} has no valid elevation data")
+
+    min_elev, max_elev = float(valid.min()), float(valid.max())
+    if max_elev == min_elev:
+        raise ValueError(
+            f"{dem_path!r} is perfectly flat (elevation range is zero) — "
+            "cannot normalize to a heightmap"
+        )
+
+    return dataset, elevation, min_elev, max_elev
+
+
+def export_dem_heightmap_png(
+    dem_path: str, output_path: str, upsample_factor: int = 1, smoothing: bool = False
+) -> None:
     """Convert a DEM GeoTIFF (elevation values) into a 16-bit grayscale
     heightmap PNG, for Twinmotion's native landscape-import feature (see
     twinmotion-architecture-study/docs/11 §6 — Twinmotion natively imports
@@ -103,26 +181,9 @@ def export_dem_heightmap_png(dem_path: str, output_path: str) -> None:
     from osgeo import gdal
     import numpy as np
 
-    dataset = gdal.Open(dem_path)
-    if dataset is None:
-        raise ValueError(f"GDAL could not open {dem_path!r} as a raster")
-
-    band = dataset.GetRasterBand(1)
-    elevation = band.ReadAsArray().astype(np.float64)
-    nodata = band.GetNoDataValue()
-    if nodata is not None:
-        elevation = np.where(elevation == nodata, np.nan, elevation)
-
-    valid = elevation[~np.isnan(elevation)]
-    if valid.size == 0:
-        raise ValueError(f"{dem_path!r} has no valid elevation data")
-
-    min_elev, max_elev = float(valid.min()), float(valid.max())
-    if max_elev == min_elev:
-        raise ValueError(
-            f"{dem_path!r} is perfectly flat (elevation range is zero) — "
-            "cannot normalize to a heightmap"
-        )
+    dataset, elevation, min_elev, max_elev = _open_and_prepare_elevation(
+        dem_path, upsample_factor, smoothing
+    )
 
     normalized = (elevation - min_elev) / (max_elev - min_elev)
     normalized = np.nan_to_num(normalized, nan=0.0)  # missing pixels -> lowest point
@@ -139,7 +200,12 @@ def export_dem_heightmap_png(dem_path: str, output_path: str) -> None:
         raise RuntimeError(f"GDAL's PNG driver failed to write {output_path!r}")
 
 
-def export_dem_heightmap_r16(dem_path: str, output_path: str) -> HeightmapExportInfo:
+def export_dem_heightmap_r16(
+    dem_path: str,
+    output_path: str,
+    upsample_factor: int = 1,
+    smoothing: bool = False,
+) -> HeightmapExportInfo:
     """Convert a DEM GeoTIFF into Twinmotion's native `.r16` heightmap
     format — a headerless raw dump of 16-bit unsigned little-endian
     integers in row-major order (VERIFIED 2026-09-03, grade a: the user
@@ -194,39 +260,54 @@ def export_dem_heightmap_r16(dem_path: str, output_path: str) -> HeightmapExport
     extent, EPSG:4326) and the result matched what this function's logic
     produces for the same inputs.
 
+    upsample_factor: resample the source DEM up by this integer factor
+    (e.g. 4 = 4x more pixels per side) via GDAL's own `gdal.Warp(...,
+    resampleAlg=gdal.GRA_CubicSpline)` before building the heightmap grid
+    — GDAL's mature, already-implemented interpolation, per explicit
+    preference for using existing tooling over a hand-rolled smoothing
+    filter. VERIFIED 2026-09-03: the user found the raw 43x17 export (no
+    upsampling) showed a visible grid/facet pattern in Twinmotion once
+    stretched over a multi-km real-world area — that's genuinely how few
+    height samples COP30's ~30m native resolution gives for a small QGIS
+    canvas view, not a bug in the conversion. Upsampling interpolates
+    between the real samples GDAL already read (it doesn't invent new
+    survey detail), but gives Twinmotion a visibly smoother mesh than the
+    raw grid does. Default 1 = no upsampling (unchanged prior behavior).
+    NOT execution-tested end-to-end this session — same GDAL-Warp call
+    shape confirmed via GDAL's own documented Python examples, not run
+    against a real DEM here.
+
+    smoothing: ⚠ BETA, not execution-tested this session. Applies
+    `scipy.ndimage.gaussian_filter` (scipy IS already bundled in QGIS
+    4.2.1's Python — confirmed installed at
+    apps/Python312/Lib/site-packages/scipy(-1.18.0), checked directly
+    2026-09-03 — no new dependency) to the elevation array as an
+    additional smoothing pass, for whenever upsampling alone doesn't
+    remove enough visible faceting. Uses a fixed sigma=1.0 (not exposed
+    as a parameter, to keep this a plain on/off checkbox rather than
+    another tunable knob) — untested against a real DEM, so the actual
+    visual effect of that sigma value is not yet confirmed. Runs AFTER
+    upsampling (if any) and affects the reported amplitude_m too (min/max
+    are measured on the smoothed array), so what you see in the sidecar/
+    dialog matches what actually got exported.
+
     Returns:
         HeightmapExportInfo — record/show this to the user alongside
         output_path, since the .r16 file itself carries none of it.
 
     Raises:
         ValueError: dem_path isn't openable by GDAL, has no valid
-            elevation data, or is perfectly flat (zero range).
+            elevation data, is perfectly flat (zero range), or
+            upsample_factor < 1.
     """
     import math
 
-    from osgeo import gdal, osr
+    from osgeo import osr
     import numpy as np
 
-    dataset = gdal.Open(dem_path)
-    if dataset is None:
-        raise ValueError(f"GDAL could not open {dem_path!r} as a raster")
-
-    band = dataset.GetRasterBand(1)
-    elevation = band.ReadAsArray().astype(np.float64)
-    nodata = band.GetNoDataValue()
-    if nodata is not None:
-        elevation = np.where(elevation == nodata, np.nan, elevation)
-
-    valid = elevation[~np.isnan(elevation)]
-    if valid.size == 0:
-        raise ValueError(f"{dem_path!r} has no valid elevation data")
-
-    min_elev, max_elev = float(valid.min()), float(valid.max())
-    if max_elev == min_elev:
-        raise ValueError(
-            f"{dem_path!r} is perfectly flat (elevation range is zero) — "
-            "cannot normalize to a heightmap"
-        )
+    dataset, elevation, min_elev, max_elev = _open_and_prepare_elevation(
+        dem_path, upsample_factor, smoothing
+    )
 
     normalized = (elevation - min_elev) / (max_elev - min_elev)
     normalized = np.nan_to_num(normalized, nan=0.0)

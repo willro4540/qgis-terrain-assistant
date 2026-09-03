@@ -752,3 +752,75 @@ class HeightmapExportInfo:
             self.amplitude_m * scale_factor,
             True,
         )
+
+
+def build_heightmap_sidecar_text(
+    dem_source_path: str,
+    heightmap_output_path: str,
+    info: HeightmapExportInfo,
+    dimension_m: float | None,
+    amplitude_m: float,
+    scale_n: float,
+    exported_at: str,
+) -> str:
+    """Plain-text record saved alongside the `.r16` file (same base name,
+    `.txt` extension) — because .r16 itself carries none of this, and the
+    values were previously only ever shown once in a QMessageBox that
+    closed and vanished (see feedback that prompted this: "확인하고
+    따로 주는건 없네" — nothing persists after clicking OK). Twinmotion
+    itself has no way to read this file or auto-fill its Import dialog
+    from it — its Landscape import has no metadata/sidecar support
+    (confirmed: only *.r16;*.png are accepted, no companion format) — so
+    this is purely a durable human reference, not something Twinmotion
+    consumes. The user (or a future session) still has to type the two
+    numbers into Twinmotion by hand; this just means they don't have to
+    remember them or re-derive them from scratch.
+
+    Pure string formatting, no file I/O — the caller writes it, so this
+    stays unit-testable without touching a real filesystem.
+    """
+    lines = [
+        f"# Terrain Assistant — heightmap 정보 ({heightmap_output_path})",
+        f"내보낸 시각: {exported_at}",
+        f"원본 DEM: {dem_source_path}",
+        "",
+        f"픽셀 크기: {info.width_px} x {info.height_px}",
+    ]
+    if info.largest_dimension_m is not None:
+        lines.append(
+            f"실제 크기(1:1): Largest dimension {info.largest_dimension_m:,.2f} m, "
+            f"Amplitude {info.amplitude_m:,.2f} m"
+        )
+    else:
+        lines.append(
+            f"실제 크기: 좌표계가 지리/투영 좌표계가 아니라 자동 계산 불가 "
+            f"(Amplitude만 확인됨: {info.amplitude_m:,.2f} m)"
+        )
+    lines.append(f"선택한 축척: 1 : {scale_n:,.2f}" if scale_n != 1 else "선택한 축척: 1:1 (실제 크기)")
+    lines.append("")
+    lines.append("Twinmotion Import ▸ Landscape 대화상자에 입력할 값:")
+    if dimension_m is not None:
+        lines.append(f"  Largest dimension = {dimension_m:,.2f} m")
+    else:
+        lines.append("  Largest dimension = 알 수 없음 (좌표계 문제로 자동 계산 불가 — QGIS 레이어 속성에서 직접 확인)")
+    lines.append(f"  Amplitude = {amplitude_m:,.2f} m")
+
+    if (
+        (dimension_m is not None and dimension_m > TWINMOTION_MAX_LARGEST_DIMENSION_M)
+        or amplitude_m > TWINMOTION_MAX_AMPLITUDE_M
+    ):
+        lines.append("")
+        lines.append(
+            f"⚠ 이 값은 실측으로 확인된 Twinmotion 다이얼로그 상한"
+            f"(Largest dimension {TWINMOTION_MAX_LARGEST_DIMENSION_M:,.0f}m, "
+            f"Amplitude {TWINMOTION_MAX_AMPLITUDE_M:,.0f}m)을 넘습니다 — 공식 문서가 "
+            f"아니라 직접 입력해서 확인한 값이라, 이보다 클 때 Twinmotion이 정확히 "
+            f"어떻게 반응할지는 확실하지 않습니다."
+        )
+
+    lines.append("")
+    lines.append(
+        "참고: 이 파일은 Twinmotion이 직접 읽는 파일이 아닙니다 — 위 두 값을 "
+        "Twinmotion 안에서 직접 입력해야 합니다."
+    )
+    return "\n".join(lines) + "\n"

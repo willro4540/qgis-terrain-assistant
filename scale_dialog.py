@@ -89,6 +89,7 @@ class HeightmapScaleDialog(QDialog):
         super().__init__(parent)
         self.real_dimension_m = real_dimension_m
         self.real_amplitude_m = real_amplitude_m
+        self.chosen_n = 1
         self.chosen_dimension_m = real_dimension_m
         self.chosen_amplitude_m = real_amplitude_m
 
@@ -228,6 +229,7 @@ class HeightmapScaleDialog(QDialog):
 
     def _recompute(self, n: int) -> None:
         factor = 1.0 / n
+        self.chosen_n = n
         self.chosen_dimension_m = self.real_dimension_m * factor
         self.chosen_amplitude_m = self.real_amplitude_m * factor
 

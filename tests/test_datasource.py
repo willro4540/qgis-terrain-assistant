@@ -28,6 +28,7 @@ from datasource import (
     HeightmapExportInfo,
     TWINMOTION_MAX_AMPLITUDE_M,
     TWINMOTION_MAX_LARGEST_DIMENSION_M,
+    build_heightmap_sidecar_text,
 )
 
 
@@ -352,3 +353,59 @@ def test_heightmap_export_info_none_dimension_raises_on_recommend():
     assert info.exceeds_twinmotion_limits() is False  # amplitude alone is fine
     with pytest.raises(ValueError):
         info.twinmotion_recommended_values()
+
+
+def test_sidecar_text_within_limits_no_warning():
+    info = HeightmapExportInfo(width_px=43, height_px=17, largest_dimension_m=1290.0, amplitude_m=69.15)
+    text = build_heightmap_sidecar_text(
+        dem_source_path="C:/temp/dem.tif",
+        heightmap_output_path="C:/Users/user/Desktop/test123.r16",
+        info=info,
+        dimension_m=1290.0,
+        amplitude_m=69.15,
+        scale_n=1,
+        exported_at="2026-09-03 17:07:00",
+    )
+    assert "test123.r16" in text
+    assert "C:/temp/dem.tif" in text
+    assert "43 x 17" in text
+    assert "1:1 (실제 크기)" in text
+    assert "Largest dimension = 1,290.00 m" in text
+    assert "Amplitude = 69.15 m" in text
+    assert "⚠" not in text  # under both caps, no warning expected
+    assert "Twinmotion이 직접 읽는 파일이 아닙니다" in text  # the "not auto-loaded" caveat
+
+
+def test_sidecar_text_over_limit_includes_warning():
+    info = HeightmapExportInfo(width_px=347, height_px=135, largest_dimension_m=8696.3, amplitude_m=273.03)
+    dimension_m, amplitude_m, _ = info.twinmotion_recommended_values()
+    scale_n = info.largest_dimension_m / dimension_m
+    text = build_heightmap_sidecar_text(
+        dem_source_path="C:/temp/gyeongju.tif",
+        heightmap_output_path="C:/Users/user/Desktop/gyeongju.r16",
+        info=info,
+        dimension_m=8696.3,  # deliberately pass the UNSCALED real value here
+        amplitude_m=273.03,
+        scale_n=1,
+        exported_at="2026-09-03 18:00:00",
+    )
+    assert "⚠" in text
+    assert "확실하지 않습니다" in text
+
+
+def test_sidecar_text_handles_none_dimension():
+    """CRS wasn't geographic/projected -- dimension couldn't be computed.
+    Must not crash formatting None, and must say so clearly rather than
+    printing a fake 0.00 m (a real bug this test would have caught)."""
+    info = HeightmapExportInfo(width_px=10, height_px=10, largest_dimension_m=None, amplitude_m=42.0)
+    text = build_heightmap_sidecar_text(
+        dem_source_path="C:/temp/weird_crs.tif",
+        heightmap_output_path="C:/Users/user/Desktop/weird.r16",
+        info=info,
+        dimension_m=None,
+        amplitude_m=42.0,
+        scale_n=1,
+        exported_at="2026-09-03 19:00:00",
+    )
+    assert "알 수 없음" in text
+    assert "0.00 m" not in text

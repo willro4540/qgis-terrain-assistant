@@ -255,5 +255,5 @@ def export_map_png(
     settings = QgsLayoutExporter.ImageExportSettings()
     settings.dpi = dpi
     result = exporter.exportToImage(output_path, settings)
-    if result != QgsLayoutExporter.Success:
+    if result != QgsLayoutExporter.ExportResult.Success:
         raise RuntimeError(f"QgsLayoutExporter.exportToImage failed with code {result}")

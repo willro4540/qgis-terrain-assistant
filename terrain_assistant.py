@@ -108,7 +108,7 @@ class TerrainAssistantPlugin:
 
     def run_settings(self):
         dialog = ApiKeyDialog(self.iface.mainWindow())
-        if dialog.exec_():
+        if dialog.exec():
             dialog.save()
 
     def _canvas_extent_4326(self):

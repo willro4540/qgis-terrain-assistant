@@ -65,11 +65,11 @@ class ApiKeyDialog(QDialog):
         self.sh_client_secret_edit = QLineEdit(self)
         self.sh_client_secret_edit.setText(sh_client_secret)
         self.sh_client_secret_edit.setPlaceholderText("Sentinel Hub OAuth client secret")
-        self.sh_client_secret_edit.setEchoMode(QLineEdit.Password)
+        self.sh_client_secret_edit.setEchoMode(QLineEdit.EchoMode.Password)
         layout.addRow("Sentinel Hub client secret:", self.sh_client_secret_edit)
 
         buttons = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, self
         )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
